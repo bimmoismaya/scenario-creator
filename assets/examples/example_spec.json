@@ -1,0 +1,181 @@
+{
+  "meta": {
+    "system_name": "Nama Sistem",
+    "doc_number": "TC-10/11-2026-1",
+    "test_date": "2026-01-15",
+    "test_description": "Pencarian produk dengan filter kategori",
+    "environment": "Staging",
+    "feature_no": 1,
+    "feature_title": "Pencarian Produk",
+    "scope": "API/Backend/Frontend"
+  },
+  "precondition": "Precondition:\n- Environment Staging, browser Chrome terbaru.\n- User uji: satu user role Staff dan satu user role Viewer.\n- Data uji: minimal 25 produk di 3 kategori, 1 produk non-aktif.\n- Tool: Postman, akses baca ke database staging.\n- Acuan: FSD Pencarian Produk (F-01), API Contract GET /products, desain halaman Produk.",
+  "sections": [
+    {
+      "title": "Halaman Produk (F-01 No 1.1)",
+      "cases": [
+        {
+          "type": "Positive",
+          "priority": "P1",
+          "method": "Manual",
+          "desc": "[Halaman Produk] Daftar produk tampil dengan pagination",
+          "steps": [
+            "Login sebagai Staff.",
+            "Buka menu Produk."
+          ],
+          "expected": [
+            "Daftar produk aktif tampil, 10 baris per halaman.",
+            "Produk non-aktif tidak tampil."
+          ],
+          "platform": "Website",
+          "status": "Pending",
+          "notes": "[FSD 1.1] Perlu verifikasi: 10 baris (FSD) vs default limit 20 (contract). Ref: FSD F-01 No 1.1, Swagger GET /products"
+        },
+        {
+          "type": "Negative",
+          "priority": "P2",
+          "method": "Manual",
+          "desc": "[Halaman Produk] Pencarian tanpa hasil menampilkan empty state",
+          "steps": [
+            "Isi kolom cari dengan teks yang tidak ada di data.",
+            "Tekan Enter."
+          ],
+          "expected": [
+            "Tabel kosong dengan teks empty state sesuai frame Halaman Produk.",
+            "Tidak ada error di console."
+          ],
+          "platform": "Website",
+          "status": "Pending",
+          "notes": "[Figma: Halaman Produk] Perlu verifikasi: teks empty state tidak tertulis di FSD. Ref: frame Halaman Produk"
+        }
+      ]
+    },
+    {
+      "title": "API Pencarian (F-01 No 1.2)",
+      "cases": [
+        {
+          "type": "Positive",
+          "priority": "P1",
+          "method": "Manual",
+          "desc": "[API Get Products] Filter kategori mengembalikan produk kategori tersebut saja",
+          "steps": [
+            "Kirim GET /products?category=<id> dengan token Staff."
+          ],
+          "expected": [
+            "Status 200.",
+            "Semua item response memiliki category_id yang sama dengan filter."
+          ],
+          "platform": "API",
+          "status": "Pending",
+          "notes": "[FSD 1.2] [Swagger GET /products]"
+        },
+        {
+          "type": "Negative",
+          "priority": "P0",
+          "method": "Manual",
+          "desc": "[API Get Products] Tanpa token ditolak",
+          "steps": [
+            "Kirim GET /products tanpa header Authorization."
+          ],
+          "expected": [
+            "Status 401.",
+            "Body tidak memuat data produk."
+          ],
+          "platform": "API",
+          "status": "Pending",
+          "notes": "[Swagger GET /products] Perlu verifikasi: perilaku tanpa token sesuai skema keamanan contract. Ref: Swagger GET /products"
+        },
+        {
+          "type": "Negative",
+          "priority": "P2",
+          "method": "Manual",
+          "desc": "[API Get Products] Nilai category tidak valid",
+          "steps": [
+            "Kirim GET /products?category=abc."
+          ],
+          "expected": [
+            "Request ditolak dengan status `<KODE_HTTP_VALIDASI_CATEGORY>`.",
+            "Body tidak memuat data produk."
+          ],
+          "platform": "API",
+          "status": "Pending",
+          "notes": "[Swagger GET /products] Menunggu nilai dari SA. Kode HTTP validasi tidak disebut di contract. Ref: API Contract GET /products"
+        }
+      ]
+    },
+    {
+      "title": "Database (F-01 No 1.2)",
+      "cases": [
+        {
+          "type": "Positive",
+          "priority": "P1",
+          "method": "Manual",
+          "desc": "[DB products] Jumlah hasil filter sama dengan query langsung",
+          "steps": [
+            "Jalankan pencarian kategori X lewat UI.",
+            "Jalankan SELECT COUNT(*) FROM products WHERE category_id = X AND is_active = 1."
+          ],
+          "expected": [
+            "Jumlah baris di UI sama dengan hasil query."
+          ],
+          "platform": "Website / Database",
+          "status": "Pending",
+          "notes": "[FSD 1.2] Konsistensi lintas layer UI dan database."
+        }
+      ]
+    },
+    {
+      "title": "Regresi",
+      "cases": [
+        {
+          "type": "Positive",
+          "priority": "P3",
+          "method": "Manual",
+          "desc": "[Regresi] Halaman Produk lama tetap bisa dibuka tanpa filter",
+          "steps": [
+            "Buka menu Produk tanpa mengisi filter."
+          ],
+          "expected": [
+            "Semua produk aktif tampil seperti sebelum rilis."
+          ],
+          "platform": "Website",
+          "status": "Pending",
+          "notes": "[Usulan] Regresi; Perlu konfirmasi SA."
+        }
+      ]
+    }
+  ],
+  "analysis": [
+    {
+      "category": "Diskrepansi",
+      "ref": "F-01 No 1.1 vs API Contract",
+      "source": "FSD vs API Contract",
+      "finding": "FSD menyebut 10 baris per halaman, contract memakai parameter limit dengan default 20.",
+      "impact": "Expected jumlah baris per halaman tidak bisa ditetapkan.",
+      "confidence": "High",
+      "question": "Default yang benar 10 atau 20, dan siapa yang menentukan (UI atau API)?",
+      "cases": "Daftar produk tampil dengan pagination"
+    },
+    {
+      "category": "Gap",
+      "ref": "F-01 No 1.2",
+      "source": "FSD",
+      "finding": "Perilaku untuk nilai category yang tidak valid tidak didefinisikan.",
+      "impact": "Expected case negatif hanya bisa ditulis sebagai perilaku paling aman.",
+      "confidence": "Medium",
+      "question": "Apa kode HTTP dan pesan untuk category yang tidak valid?",
+      "cases": "Nilai category tidak valid"
+    },
+    {
+      "category": "Nilai hilang",
+      "ref": "F-01 No 1.2",
+      "source": "API Contract",
+      "finding": "Kode HTTP untuk nilai category tidak valid tidak ada di contract; expected memakai placeholder <KODE_HTTP_VALIDASI_CATEGORY>.",
+      "impact": "Case negatif belum bisa diverifikasi pasti.",
+      "confidence": "High",
+      "question": "Isi <KODE_HTTP_VALIDASI_CATEGORY> dengan kode yang benar (400 atau 422?).",
+      "cases": "Nilai category tidak valid"
+    }
+  ],
+  "bugs": []
+}

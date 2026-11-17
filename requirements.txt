@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-docx
+pypdf
+openpyxl
+itsdangerous
+python-multipart
+pytest
+httpx
