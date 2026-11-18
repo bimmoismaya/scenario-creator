@@ -51,7 +51,7 @@ def clean(text: str, limit: int = 300) -> str:
 
 
 def stage_of(ev: dict, n: dict | None = None) -> str | None:
-    """Tahap hanya dari nama tool dan awalan nama file; isi event tidak pernah dipakai. `n` = penghitung langkah."""
+    """Tahap hanya dari nama tool dan awalan path; isi event tidak pernah dipakai. `n` = penghitung langkah + daftar path repo."""
     if ev.get("type") != "assistant":
         return None
     n = n if n is not None else {}
@@ -72,8 +72,12 @@ def stage_of(ev: dict, n: dict | None = None) -> str | None:
             elif name == "Read" and path.startswith("fsd_"):
                 stage = "Membaca FSD"
             elif name in ("Read", "Glob", "Grep"):
-                n["r"] = n.get("r", 0) + 1
-                stage = f"Menelusuri kode repo ({n['r']} langkah)"
+                where = str(inp.get("file_path") or inp.get("path") or "") if isinstance(inp, dict) else ""
+                if any(where.startswith(r) for r in n.get("repos", ())):
+                    n["r"] = n.get("r", 0) + 1
+                    stage = f"Menelusuri kode repo ({n['r']} langkah)"
+                else:
+                    stage = "Membaca referensi skill"
             elif name == "WebFetch":
                 stage = "Membaca Swagger"
             elif name.startswith("mcp__"):
@@ -119,7 +123,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
 
         timer = threading.Timer(timeout, kill)
         timer.start()
-        result, steps = None, {}
+        result, steps = None, {"repos": list(form.git_repos)}
         try:
             for line in proc.stdout:
                 try:

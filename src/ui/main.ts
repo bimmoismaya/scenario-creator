@@ -66,13 +66,16 @@ const vals = (id: string) => inputs(id).map(i => i.value.trim()).filter(Boolean)
 interface Dirs { path: string; parent: string; repo: boolean; dirs: { name: string; path: string; repo: boolean }[] }
 function pickFolder(): Promise<string> {
   const dlg = $<HTMLDialogElement>("picker");
-  let cur = "", parent = "";
+  let cur = "", parent = "", seq = 0, res: (p: string) => void = () => {};
   const go = async (path: string) => {
     showErr("pk-err", "");
+    const me = ++seq;  // respons lama yang datang terlambat diabaikan
     const r = await fetch("/api/git/dirs?path=" + encodeURIComponent(path)).catch(() => null);
+    if (me !== seq) return;
     if (!r) return showErr("pk-err", "Server tidak terjangkau.");
-    if (r.status === 401) { dlg.close(); return showLogin(); }
+    if (r.status === 401) { dlg.close(); res(""); return showLogin(); }
     const j = await r.json().catch(() => null) as (Dirs & { detail?: string }) | null;
+    if (me !== seq) return;
     if (!r.ok || !j) return showErr("pk-err", j?.detail || "Folder tidak bisa dibuka.");
     cur = j.path; parent = j.parent;
     $("pk-path").textContent = cur || "Folder induk yang diizinkan";
@@ -86,7 +89,8 @@ function pickFolder(): Promise<string> {
       list.append(el("li", null, b));
     }
   };
-  return new Promise(res => {
+  return new Promise(resolve => {
+    res = resolve;
     $("pk-up").onclick = () => go(parent);
     $("pk-ok").onclick = () => { dlg.close(); res(cur); };
     $("pk-cancel").onclick = () => { dlg.close(); res(""); };

@@ -68,17 +68,23 @@ const inputs = (id) => [...$(id).querySelectorAll("input")];
 const vals = (id) => inputs(id).map(i => i.value.trim()).filter(Boolean);
 function pickFolder() {
     const dlg = $("picker");
-    let cur = "", parent = "";
+    let cur = "", parent = "", seq = 0, res = () => { };
     const go = async (path) => {
         showErr("pk-err", "");
+        const me = ++seq; // respons lama yang datang terlambat diabaikan
         const r = await fetch("/api/git/dirs?path=" + encodeURIComponent(path)).catch(() => null);
+        if (me !== seq)
+            return;
         if (!r)
             return showErr("pk-err", "Server tidak terjangkau.");
         if (r.status === 401) {
             dlg.close();
+            res("");
             return showLogin();
         }
         const j = await r.json().catch(() => null);
+        if (me !== seq)
+            return;
         if (!r.ok || !j)
             return showErr("pk-err", j?.detail || "Folder tidak bisa dibuka.");
         cur = j.path;
@@ -96,7 +102,8 @@ function pickFolder() {
             list.append(el("li", null, b));
         }
     };
-    return new Promise(res => {
+    return new Promise(resolve => {
+        res = resolve;
         $("pk-up").onclick = () => go(parent);
         $("pk-ok").onclick = () => { dlg.close(); res(cur); };
         $("pk-cancel").onclick = () => { dlg.close(); res(""); };

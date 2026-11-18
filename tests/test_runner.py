@@ -84,11 +84,12 @@ def test_stage_and_clean():
     ev = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash",
           "input": {"command": "secret@x.com"}}]}}
     assert stage_of(ev) == "Memvalidasi spec"
-    n = {}
+    n = {"repos": ["/repo"]}
     rd = lambda f: {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"file_path": f}}]}}
     assert stage_of(rd("/job/fsd_1.md"), n) == "Membaca FSD"
     assert stage_of(rd("/repo/a.py"), n) == "Menelusuri kode repo (1 langkah)"
     assert stage_of(rd("/repo/b.py"), n) == "Menelusuri kode repo (2 langkah)"
+    assert stage_of(rd("/skill/references/x.md"), n) == "Membaca referensi skill"  # bukan repo, tidak menambah hitungan
     assert stage_of({"type": "user"}) is None
     out = clean("a@b.com " + "x" * 500)
     assert "@" not in out and len(out) <= 300
