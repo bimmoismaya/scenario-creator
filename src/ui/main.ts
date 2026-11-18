@@ -63,7 +63,7 @@ SOURCES.forEach(sourceGroup);
 const inputs = (id: string) => [...$(id).querySelectorAll("input")];
 const vals = (id: string) => inputs(id).map(i => i.value.trim()).filter(Boolean);
 // Folder Git: dipilih dari daftar folder di server (dibatasi GIT_ROOTS), tidak ada file yang diunggah.
-interface Dirs { path: string; parent: string; dirs: { name: string; path: string; repo: boolean }[] }
+interface Dirs { path: string; parent: string; repo: boolean; dirs: { name: string; path: string; repo: boolean }[] }
 function pickFolder(): Promise<string> {
   const dlg = $<HTMLDialogElement>("picker");
   let cur = "", parent = "";
@@ -76,7 +76,7 @@ function pickFolder(): Promise<string> {
     if (!r.ok || !j) return showErr("pk-err", j?.detail || "Folder tidak bisa dibuka.");
     cur = j.path; parent = j.parent;
     $("pk-path").textContent = cur || "Folder induk yang diizinkan";
-    $<HTMLButtonElement>("pk-ok").disabled = !cur;
+    $<HTMLButtonElement>("pk-ok").disabled = !j.repo;
     $<HTMLButtonElement>("pk-up").disabled = !cur;
     const list = $("pk-list"); list.replaceChildren();
     if (!j.dirs.length) list.append(el("li", { class: "hint" }, cur ? "Tidak ada subfolder." : "GIT_ROOTS belum diisi di server."));

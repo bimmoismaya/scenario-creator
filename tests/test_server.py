@@ -181,10 +181,15 @@ def test_git_folder_selected(client, roots, tmp_path):
     assert not any(d.glob("git_*"))  # tidak ada file repo yang disalin
 
 
-@pytest.mark.parametrize("bad", ["/etc", "relatif/app", "ROOT/../secret", "ROOT/evil", "ROOT/tidak-ada"])
+@pytest.mark.parametrize("bad", ["/etc", "relatif/app", "ROOT/../secret", "ROOT/evil", "ROOT/tidak-ada", "ROOT", "ROOT/lib"])
 def test_git_folder_rejected(client, roots, bad):
     login(client)
     assert gitgen(client, [bad.replace("ROOT", str(roots))]).status_code == 422
+
+
+def test_git_folder_too_many(client, roots):
+    login(client)
+    assert gitgen(client, [str(roots / "app")] * 11).status_code == 422
 
 
 def test_git_folder_roots_empty(client, monkeypatch, tmp_path):
@@ -200,5 +205,6 @@ def test_git_dirs_listing(client, roots):
     assert top["dirs"][0]["path"] == str(roots.resolve()) and top["parent"] == ""
     sub = client.get("/api/git/dirs", params={"path": str(roots)}).json()
     assert {(d["name"], d["repo"]) for d in sub["dirs"]} == {("app", True), ("lib", False)}  # symlink keluar root disembunyikan
-    assert sub["parent"] == ""
+    assert sub["parent"] == "" and sub["repo"] is False
+    assert client.get("/api/git/dirs", params={"path": str(roots / "app")}).json()["repo"] is True
     assert client.get("/api/git/dirs", params={"path": "/etc"}).status_code == 422

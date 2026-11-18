@@ -84,7 +84,7 @@ function pickFolder() {
         cur = j.path;
         parent = j.parent;
         $("pk-path").textContent = cur || "Folder induk yang diizinkan";
-        $("pk-ok").disabled = !cur;
+        $("pk-ok").disabled = !j.repo;
         $("pk-up").disabled = !cur;
         const list = $("pk-list");
         list.replaceChildren();

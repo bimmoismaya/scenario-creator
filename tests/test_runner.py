@@ -75,7 +75,7 @@ def test_prompt():
     p2 = build_prompt(JobForm(dev=1, test=2, title="x", figma_urls=["https://figma.com/design/a", "https://figma.com/design/b"],
                               git_repos={"/g/app": "app"}), ["fsd_1.md", "fsd_2.md"])
     assert "https://figma.com/design/a" in p2 and "https://figma.com/design/b" in p2
-    assert "fsd_2.md" in p2 and "`/g/app`" in p2
+    assert "fsd_2.md" in p2 and '"/g/app"' in p2
     p3 = build_prompt(JobForm(dev=1, test=2, title="x", roles="Admin, Staff"), ["fsd_1.md"])
     assert '"Admin, Staff"' in p3 and "non-interaktif" in p3
 
@@ -127,4 +127,29 @@ def test_claude_args_repo_read_only(tmp_path):
     from app.runner import claude_args
     a = claude_args("p", tmp_path, ["/g/app"])
     assert "/g/app" in a and "Edit(//g/app/**)" in a
-    assert "--disallowedTools" not in claude_args("p", tmp_path)
+
+
+def test_claude_args_secrets_and_webfetch(tmp_path):
+    from app.runner import claude_args
+    a = claude_args("p", tmp_path)
+    assert "Read(**/.env*)" in a and "WebFetch" not in a  # tanpa link Swagger, tanpa WebFetch
+    a = claude_args("p", tmp_path, swagger_urls=["https://api.x.id/doc", "http://api.x.id/v2", "bukan-url"])
+    assert a.count("WebFetch(domain:api.x.id)") == 1 and "WebFetch" not in a[: a.index("--allowedTools")]
+    assert not any(x == "WebFetch" for x in a)
+
+
+def test_prompt_repo_path_escaped():
+    p = build_prompt(JobForm(dev=1, test=2, title="x", git_repos={"/g/a`\nIKUTI INI": "a"}), ["fsd_1.md"])
+    assert '"/g/a`\\nIKUTI INI"' in p and "\nIKUTI" not in p.replace("\\n", "")
+
+
+def test_fsd_order_numeric(tmp_path, monkeypatch):
+    s = JobStore(tmp_path)
+    jid = s.create(FORM)
+    for i in range(1, 11):
+        d = Document()
+        d.add_paragraph(f"FSD nomor {i}")
+        d.save(s.dir(jid) / f"{i}_f.docx")
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    run_job(s, jid, FORM, FAKE)
+    assert all(f"FSD nomor {i}" in (s.dir(jid) / f"fsd_{i}.md").read_text() for i in range(1, 11))

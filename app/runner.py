@@ -6,6 +6,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app.finalize import FinalizeError, finalize
 from app.jobs import JobForm, JobStore
@@ -24,13 +25,20 @@ def allowed_tools(job_dir: Path) -> list[str]:
             *[f"mcp__claude_ai_Figma__{t}" for t in _FIGMA]]
 
 
-def claude_args(prompt: str, job_dir: Path, repos: list[str] = []) -> list[str]:
+# Rahasia umum di repo yang tidak boleh dibaca Claude (isinya bisa bocor ke spec/Excel).
+_SECRETS = ["Read(**/.env*)", "Read(**/*.pem)", "Read(**/*.key)", "Read(**/id_rsa*)"]
+
+
+def claude_args(prompt: str, job_dir: Path, repos: tuple | list = (), swagger_urls: tuple | list = ()) -> list[str]:
+    # WebFetch hanya ke host Swagger yang diisi user; tanpa link, tanpa WebFetch.
+    hosts = sorted({h for u in swagger_urls if (h := urlparse(u).hostname)})
+    tools = [t for t in allowed_tools(job_dir) if t != "WebFetch"] + [f"WebFetch(domain:{h})" for h in hosts]
     # Repo dibaca langsung dari disk; Edit(...) menolak semua penulisan ke repo (deny menang atas "Write(*)").
-    deny = [f"Edit(/{r}/**)" for r in repos]
+    deny = [*_SECRETS, *[f"Edit(/{r}/**)" for r in repos]]
     return ["-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--allowedTools", *allowed_tools(job_dir), "--add-dir", str(Path(job_dir).resolve()),
+            "--allowedTools", *tools, "--add-dir", str(Path(job_dir).resolve()),
             *[x for r in repos for x in ("--add-dir", r)],
-            *(["--disallowedTools", *deny] if deny else []),
+            "--disallowedTools", *deny,
             "--model", os.environ.get("CLAUDE_MODEL", "opus"),
             "--permission-mode", "dontAsk", "--no-session-persistence"]
 
@@ -84,7 +92,9 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
         store.set_status(job_id, state="failed", error=clean(msg))
 
     store.set_status(job_id, state="running", stage="Membaca sumber", queue_pos=0)
-    uploads = sorted(p for p in d.iterdir() if p.suffix.lower() in (".docx", ".pdf"))
+    # Urut numerik menurut awalan "{i}_" dari server ("10_x" sesudah "2_x").
+    num = lambda p: (int(m[1]) if (m := re.match(r"(\d+)_", p.name)) else 10**9, p.name)
+    uploads = sorted((p for p in d.iterdir() if p.suffix.lower() in (".docx", ".pdf")), key=num)
     if not uploads:
         return fail("File FSD tidak ditemukan di folder job")
     try:
@@ -97,7 +107,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
     (d / "spec.json").unlink(missing_ok=True)
     with tempfile.TemporaryFile("w+") as err:
         try:
-            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, [f"fsd_{i}.md" for i in range(1, len(uploads) + 1)]), d, list(form.git_repos)), cwd=d,
+            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, [f"fsd_{i}.md" for i in range(1, len(uploads) + 1)]), d, list(form.git_repos), form.swagger_urls), cwd=d,
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, text=True)
         except OSError as e:
             return fail(f"Claude Code tidak dapat dijalankan: {e.strerror or type(e).__name__}")

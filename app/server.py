@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from app.finalize import preview_data
 from app.jobs import JobForm, JobStore, Queue
-from app.sources import fsd_to_text, git_dir, git_roots, safe_name
+from app.sources import fsd_to_text, git_browse, git_dir, git_roots, safe_name
 
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_ITEMS = 10  # per sumber
@@ -83,7 +83,8 @@ def create_app(run_job=None) -> FastAPI:
         auth(request)
         clean_list = lambda xs: [x.strip() for x in xs if x.strip()]
         swagger_url, figma_url = map(clean_list, (swagger_url, figma_url))
-        if not fsd or max(len(fsd), len(swagger_url), len(figma_url)) > MAX_ITEMS:
+        git_path = clean_list(git_path)
+        if not fsd or max(len(fsd), len(swagger_url), len(figma_url), len(git_path)) > MAX_ITEMS:
             raise HTTPException(422, f"Maksimal {MAX_ITEMS} isian per sumber, minimal satu FSD")
         try:
             if not title.strip():
@@ -105,7 +106,7 @@ def create_app(run_job=None) -> FastAPI:
                 raise HTTPException(413)
             uploads.append((name, data))
         try:
-            repos = {str(d): d.name for d in map(git_dir, clean_list(git_path)[:MAX_ITEMS])}
+            repos = {str(d): d.name for d in map(git_dir, git_path)}
         except ValueError as e:
             raise HTTPException(422, str(e))
         form.git_repos = repos
@@ -125,7 +126,7 @@ def create_app(run_job=None) -> FastAPI:
     def git_dirs(request: Request, path: str = ""):
         auth(request)
         try:
-            base = git_dir(path) if path else None
+            base = git_browse(path) if path else None
             roots = git_roots()
             kids = roots if base is None else sorted(c for c in base.iterdir() if c.is_dir())
             # symlink yang menunjuk keluar GIT_ROOTS tidak ditampilkan
@@ -134,7 +135,7 @@ def create_app(run_job=None) -> FastAPI:
         except (ValueError, OSError) as e:
             raise HTTPException(422, str(e))
         parent = "" if base is None or base in roots else str(base.parent)
-        return {"path": str(base or ""), "parent": parent, "dirs": dirs}
+        return {"path": str(base or ""), "parent": parent, "repo": bool(base and (base / ".git").exists()), "dirs": dirs}
 
     @app.get("/api/jobs/{job_id}")
     def status(job_id: str, request: Request):

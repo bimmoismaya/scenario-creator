@@ -47,8 +47,8 @@ def git_roots() -> list[Path]:
     return [Path(r).resolve() for r in os.environ.get("GIT_ROOTS", "").split(":") if r.strip()]
 
 
-def git_dir(path: str) -> Path:
-    """Path folder dari browser -> path asli, hanya bila ada di dalam GIT_ROOTS (symlink ikut diselesaikan)."""
+def git_browse(path: str) -> Path:
+    """Folder yang boleh ditelusuri di pemilih: root atau apa pun di dalam GIT_ROOTS (symlink ikut diselesaikan)."""
     try:
         real = Path(path).resolve(strict=True) if os.path.isabs(path) else None
     except (OSError, ValueError):
@@ -57,4 +57,12 @@ def git_dir(path: str) -> Path:
         raise ValueError("Folder Git tidak ditemukan")
     if not any(real.is_relative_to(r) for r in git_roots()):
         raise ValueError("Folder Git di luar GIT_ROOTS")
+    return real
+
+
+def git_dir(path: str) -> Path:
+    """Folder yang boleh dipilih: repo Git di dalam GIT_ROOTS, bukan root itu sendiri."""
+    real = git_browse(path)
+    if real in git_roots() or not (real / ".git").exists():
+        raise ValueError("Pilih folder repo Git (berisi .git), bukan folder induknya")
     return real
