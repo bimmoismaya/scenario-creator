@@ -44,7 +44,7 @@ def fsd_to_text(path: Path) -> str:
 
 
 def git_roots() -> list[Path]:
-    return [Path(r).resolve() for r in os.environ.get("GIT_ROOTS", "").split(":") if r.strip()]
+    return [Path(r).resolve() for r in os.environ.get("GIT_ROOTS", "").split(os.pathsep) if r.strip()]
 
 
 def git_browse(path: str) -> Path:

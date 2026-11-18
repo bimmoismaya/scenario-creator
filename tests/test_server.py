@@ -167,7 +167,10 @@ def roots(tmp_path, monkeypatch):
     (root / "app" / ".git").mkdir(parents=True)
     (root / "lib").mkdir()
     (tmp_path / "secret").mkdir()
-    (root / "evil").symlink_to(tmp_path / "secret")
+    try:
+        (root / "evil").symlink_to(tmp_path / "secret")
+    except OSError:  # Windows tanpa hak symlink
+        pass
     monkeypatch.setenv("GIT_ROOTS", str(root))
     return root
 
@@ -190,6 +193,13 @@ def test_git_folder_rejected(client, roots, bad):
 def test_git_folder_too_many(client, roots):
     login(client)
     assert gitgen(client, [str(roots / "app")] * 11).status_code == 422
+
+
+def test_git_roots_pathsep(monkeypatch, tmp_path):
+    import os
+    from app.sources import git_roots
+    monkeypatch.setenv("GIT_ROOTS", os.pathsep.join([str(tmp_path / "a"), str(tmp_path / "b")]))
+    assert git_roots() == [(tmp_path / "a").resolve(), (tmp_path / "b").resolve()]
 
 
 def test_git_folder_roots_empty(client, monkeypatch, tmp_path):

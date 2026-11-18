@@ -9,9 +9,9 @@ Alat ini tidak terikat satu project. Setiap Generate berdiri sendiri dan hanya m
 
 | Kebutuhan | Keterangan |
 |---|---|
-| Linux atau macOS | Diuji di Linux. Windows: pakai WSL. |
+| Linux, macOS, atau Windows 10/11 | Diuji di Linux. Windows asli didukung lewat `run.bat` (lihat bagian Windows), belum diuji langsung. WSL juga bisa dan memakai langkah Linux. |
 | Python 3.11 atau lebih baru | Diuji di 3.14. Cek dengan `python3 --version`. |
-| Claude Code CLI | Harus sudah login. Cek dengan `claude --version`. |
+| Claude Code CLI | Harus sudah login. Cek dengan `claude --version`. Di Windows pakai versi native (`claude.exe`), bukan versi npm (`claude.cmd`), dan pasang Git for Windows. |
 | LibreOffice (`soffice`) | Opsional. Dipakai menghitung ulang rumus di sheet Statistic. Tanpa ini, Excel tetap menghitung saat file dibuka. |
 | Konektor Figma di akun Claude | Opsional. Tanpa ini, Generate tetap jalan dan case yang butuh desain ditandai `Perlu verifikasi`. |
 
@@ -31,6 +31,9 @@ itu, dan hanya satu Generate berjalan per waktu.
    python3 -m venv .venv
    .venv/bin/pip install -r requirements.txt
    ```
+
+> **Windows:** gunakan perintah di bagian [Memasang di Windows](#memasang-di-windows) untuk langkah 2, 3, dan 5, dan
+> `run.bat` untuk menjalankan. Selebihnya sama.
 
 3. **Pasang skill ke Claude Code.** Tanpa langkah ini, Claude tidak menemukan skill `qa-scenario` saat Generate.
    ```
@@ -64,11 +67,35 @@ itu, dan hanya satu Generate berjalan per waktu.
    ```
    Semua tes harus lulus.
 
+## Memasang di Windows
+
+Jalankan di Command Prompt dari folder proyek. Prasyarat: Python 3.11+ (centang "Add to PATH" saat memasang),
+Git for Windows (dipakai Claude Code untuk menjalankan perintah), dan Claude Code versi native yang sudah login.
+
+```
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+mkdir "%USERPROFILE%\.claude\skills"
+mklink /J "%USERPROFILE%\.claude\skills\qa-scenario" "%CD%"
+copy .env.example .env
+```
+
+- `mklink /J` membuat junction (tidak butuh hak admin). Cek: `dir "%USERPROFILE%\.claude\skills\qa-scenario\SKILL.md"`.
+- Isi `.env` dengan Notepad. `APP_SECRET`: `.venv\Scripts\python -c "import secrets; print(secrets.token_hex(32))"`.
+- `GIT_ROOTS` di Windows dipisah dengan `;` dan memakai path lengkap, mis. `GIT_ROOTS=C:\Users\Anda\git;D:\repo`.
+- Tes: `.venv\Scripts\python -m pytest -q`.
+- Jalankan dengan `run.bat` (atau `.venv\Scripts\python -X utf8 run.py`). Boleh juga `python run.py` di Linux dan macOS.
+- Jika Windows Firewall bertanya saat server pertama kali jalan, izinkan akses jaringan privat agar QA lain bisa membuka
+  `http://<ip-mesin>:8000`.
+- Windows belum diuji langsung oleh pembuat; bila ada kendala, laporkan pesan error-nya.
+
 ## Menjalankan
 
 ```
 ./run.sh
 ```
+
+Di Windows: `run.bat`. `run.py` bisa dipakai di semua sistem.
 
 Buka `http://localhost:8000` dan login dengan `APP_PASSWORD`. Server mendengarkan di semua antarmuka
 (`0.0.0.0:8000`), jadi QA lain di jaringan yang sama membuka `http://<ip-mesin>:8000`. Untuk berhenti: Ctrl+C.
@@ -125,6 +152,8 @@ Restart `./run.sh`. Symlink skill tidak perlu dibuat ulang karena menunjuk ke fo
 - **Job gagal dengan pesan login:** token Claude Code kedaluwarsa. Jalankan `claude` di mesin server, login
   ulang, lalu Generate lagi.
 - **Job gagal karena skill tidak ditemukan:** ulangi langkah 3 di bagian Memasang.
+- **Windows, job gagal dengan pesan "versi npm (.cmd)":** pasang Claude Code versi native (`claude.exe`), pastikan
+  `where claude` menunjuk ke `.exe`, lalu restart `run.bat`.
 - **Hasil sementara:** disimpan di `JOBS_DIR` dan dihapus otomatis setelah 24 jam (saat start dan tiap jam).
   Bersihkan manual dengan `rm -rf jobs/*`.
 - **Privasi:** isi FSD, Swagger, dan Figma diproses oleh Claude (Anthropic) lewat akun yang login di mesin server.
@@ -137,6 +166,7 @@ Restart `./run.sh`. Symlink skill tidak perlu dibuat ulang karena menunjuk ke fo
 
 ## Struktur
 
+- `run.sh`, `run.bat`, `run.py`: menjalankan server (Linux/macOS, Windows, dan semua sistem).
 - `app/`: server FastAPI, runner `claude`, dan UI satu halaman (`app/static/index.html`).
 - `scripts/build_scenario.py`: spec JSON menjadi xlsx dan pemeriksa mutu (`--check`).
 - `SKILL.md`, `references/`, `assets/`: skill `qa-scenario` yang dibaca Claude saat Generate.

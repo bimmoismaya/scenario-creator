@@ -38,12 +38,12 @@ class JobStore:
     def create(self, form: JobForm) -> str:
         job_id = uuid.uuid4().hex[:12]
         self.dir(job_id).mkdir()
-        (self.dir(job_id) / "form.json").write_text(form.model_dump_json())
+        (self.dir(job_id) / "form.json").write_text(form.model_dump_json(), encoding="utf-8")
         self._write(job_id, {"state": "queued", "stage": "", "error": None, "queue_pos": 0})
         return job_id
 
     def status(self, job_id: str) -> dict:
-        return json.loads((self.dir(job_id) / "status.json").read_text())
+        return json.loads((self.dir(job_id) / "status.json").read_text(encoding="utf-8"))
 
     def set_status(self, job_id: str, **fields) -> None:
         with self._lock:
@@ -52,7 +52,7 @@ class JobStore:
     def _write(self, job_id: str, data: dict) -> None:
         p = self.dir(job_id) / "status.json"
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data))
+        tmp.write_text(json.dumps(data), encoding="utf-8")
         tmp.replace(p)
 
     def purge(self, older_than_seconds: int = 86400) -> None:

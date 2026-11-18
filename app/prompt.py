@@ -5,7 +5,8 @@ from pathlib import Path
 from app.jobs import JobForm
 
 ROOT = Path(__file__).resolve().parent.parent
-CHECK_CMD = f'"{sys.executable}" "{ROOT}/scripts/build_scenario.py" spec.json --check'
+# as_posix: shell Bash di Windows (Git Bash) tidak membaca backslash di path.
+CHECK_CMD = f'"{Path(sys.executable).as_posix()}" "{(ROOT / "scripts" / "build_scenario.py").as_posix()}" spec.json --check'
 
 
 def build_prompt(form: JobForm, fsd_files: list[str]) -> str:

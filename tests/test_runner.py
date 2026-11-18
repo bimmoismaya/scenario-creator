@@ -154,3 +154,10 @@ def test_fsd_order_numeric(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "ok")
     run_job(s, jid, FORM, FAKE)
     assert all(f"FSD nomor {i}" in (s.dir(jid) / f"fsd_{i}.md").read_text() for i in range(1, 11))
+
+
+def test_npm_cmd_rejected(tmp_path):
+    s, jid = make(tmp_path)
+    run_job(s, jid, FORM, [r"C:\\npm\\claude.cmd"])
+    st = s.status(jid)
+    assert st["state"] == "failed" and "native" in st["error"]

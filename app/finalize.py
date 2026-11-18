@@ -27,7 +27,7 @@ def _recalc(xlsx: Path) -> None:
         outdir = Path(tmp) / "out"
         try:
             subprocess.run(
-                [soffice, f"-env:UserInstallation=file://{tmp}/profile", "--headless",
+                [soffice, f"-env:UserInstallation={(Path(tmp) / 'profile').as_uri()}", "--headless",
                  "--convert-to", "xlsx", "--outdir", str(outdir), str(xlsx)],
                 capture_output=True, timeout=120, check=True)
         except (subprocess.SubprocessError, OSError):
