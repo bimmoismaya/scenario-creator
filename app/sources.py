@@ -1,4 +1,3 @@
-import os
 import re
 from pathlib import Path
 
@@ -43,17 +42,11 @@ def fsd_to_text(path: Path) -> str:
     return text
 
 
-def git_repo(raw: str, roots: list[str]) -> str:
-    """Path repo git lokal yang sah: di dalam salah satu GIT_ROOTS dan berisi .git."""
-    if not roots:
-        raise ValueError("Sumber Git belum diaktifkan: admin perlu mengisi GIT_ROOTS")
-    p = Path(raw).expanduser().resolve()
-    if not any(p == r or r in p.parents for r in map(lambda x: Path(x).resolve(), roots)):
-        raise ValueError(f"Folder Git di luar lokasi yang diizinkan: {raw}")
-    if not (p / ".git").exists():
-        raise ValueError(f"Bukan repo Git (tidak ada .git): {raw}")
-    return str(p)
-
-
-def git_roots() -> list[str]:
-    return [r for r in os.environ.get("GIT_ROOTS", "").split(os.pathsep) if r.strip()]
+def git_target(rel: str, max_repos: int) -> tuple[int, str, Path]:
+    """`N/folder/sub/file` dari browser -> (N, folder, sub/file); tolak path berbahaya."""
+    parts = rel.split("/")
+    if len(parts) < 3 or not parts[0].isdigit() or not 1 <= int(parts[0]) <= max_repos:
+        raise ValueError("Path file Git tidak valid")
+    if any(x in ("", ".", "..") or "\\" in x or "\0" in x for x in parts):
+        raise ValueError("Path file Git tidak valid")
+    return int(parts[0]), safe_name(parts[1]), Path(*parts[2:])

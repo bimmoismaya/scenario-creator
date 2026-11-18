@@ -15,10 +15,13 @@ from pydantic import ValidationError
 
 from app.finalize import preview_data
 from app.jobs import JobForm, JobStore, Queue
-from app.sources import fsd_to_text, git_repo, git_roots, safe_name
+from app.sources import fsd_to_text, git_target, safe_name
 
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_ITEMS = 10  # per sumber
+GIT_MAX_FILES = 900  # Starlette membatasi 1000 file per request (FSD ikut dihitung)
+GIT_MAX_FILE = 1024 * 1024
+GIT_MAX_TOTAL = 30 * 1024 * 1024
 STATIC = Path(__file__).parent / "static"
 SESSION_AGE = 7 * 86400
 
@@ -78,20 +81,19 @@ def create_app(run_job=None) -> FastAPI:
     async def generate(request: Request, dev: str = Form(""), test: str = Form(""), title: str = Form(""),
                        environment: str = Form("Staging"), scope_note: str = Form(""),
                        swagger_url: list[str] = Form([]), figma_url: list[str] = Form([]),
-                       git_path: list[str] = Form([]), roles: str = Form(""),
+                       git_rel: list[str] = Form([]), git_file: list[UploadFile] = File([]), roles: str = Form(""),
                        fsd: list[UploadFile] = File(...)):
         auth(request)
         clean_list = lambda xs: [x.strip() for x in xs if x.strip()]
-        swagger_url, figma_url, git_path = map(clean_list, (swagger_url, figma_url, git_path))
-        if not fsd or max(len(fsd), len(swagger_url), len(figma_url), len(git_path)) > MAX_ITEMS:
+        swagger_url, figma_url = map(clean_list, (swagger_url, figma_url))
+        if not fsd or max(len(fsd), len(swagger_url), len(figma_url)) > MAX_ITEMS:
             raise HTTPException(422, f"Maksimal {MAX_ITEMS} isian per sumber, minimal satu FSD")
         try:
             if not title.strip():
                 raise ValueError("title")
-            repos = [git_repo(g, git_roots()) for g in git_path]
             form = JobForm(dev=dev, test=test, title=title.strip(), environment=environment or "Staging",
                            scope_note=scope_note, swagger_urls=swagger_url, figma_urls=figma_url,
-                           git_paths=repos, roles=roles)
+                           roles=roles)
         except ValidationError:
             raise HTTPException(422, "Isian tidak lengkap")
         except ValueError as e:
@@ -105,8 +107,28 @@ def create_app(run_job=None) -> FastAPI:
             if len(data) > MAX_UPLOAD:
                 raise HTTPException(413)
             uploads.append((name, data))
+        if len(git_file) != len(git_rel) or len(git_file) > GIT_MAX_FILES:
+            raise HTTPException(422, f"Folder Git maksimal {GIT_MAX_FILES} file; pilih subfolder yang lebih kecil")
+        repos: dict[str, str] = {}
+        git_data: list[tuple[Path, bytes]] = []
+        total = 0
+        try:
+            for f, rel in zip(git_file, git_rel):
+                n, folder, sub = git_target(rel, MAX_ITEMS)
+                repos[f"git_{n}"] = folder
+                data = await f.read(GIT_MAX_FILE + 1)
+                total += len(data)
+                if len(data) > GIT_MAX_FILE or total > GIT_MAX_TOTAL:
+                    raise HTTPException(413, "Folder Git terlalu besar (maks 1 MB per file, 30 MB total)")
+                git_data.append((Path(f"git_{n}") / sub, data))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        form.git_repos = repos
         job_id = store.create(form)
         d = store.dir(job_id)
+        for rel_path, data in git_data:
+            (d / rel_path).parent.mkdir(parents=True, exist_ok=True)
+            (d / rel_path).write_bytes(data)
         try:
             for i, (name, data) in enumerate(uploads, 1):
                 (d / f"{i}_{name}").write_bytes(data)

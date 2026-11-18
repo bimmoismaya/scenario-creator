@@ -15,8 +15,9 @@ def build_prompt(form: JobForm, fsd_files: list[str]) -> str:
         return f"- {label}: (kosong) tandai case yang bergantung padanya `Perlu verifikasi`."
 
     fsd_list = ", ".join(f"`{f}`" for f in fsd_files)
-    git = (f"- folder git lokal (read-only, baca dengan Read/Glob/Grep; bandingkan perilaku kode dengan FSD, jangan mengubah file): "
-           + ", ".join(json.dumps(g) for g in form.git_paths)) if form.git_paths else "- folder git lokal: (tidak ada)"
+    git = ("- repo git hasil unggahan user (read-only: baca dengan Read/Glob/Grep, jangan mengubah file; riwayat commit tidak tersedia; "
+           "bandingkan perilaku kode dengan FSD): " + ", ".join(f"`{d}/` (folder asal {json.dumps(n)})" for d, n in form.git_repos.items())
+           ) if form.git_repos else "- repo git: (tidak ada)"
 
     return f"""Gunakan skill qa-scenario untuk membuat spec skenario QA.
 Folder kerja (cwd) berisi {fsd_list} (FSD yang sudah dikonversi ke teks; bila lebih dari satu, semuanya bagian dari fitur yang sama): baca semuanya dengan Read.

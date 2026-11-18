@@ -20,7 +20,7 @@ class JobForm(BaseModel):
     scope_note: str = ""
     swagger_urls: list[str] = []
     figma_urls: list[str] = []
-    git_paths: list[str] = []  # sudah divalidasi server (lihat sources.git_repo)
+    git_repos: dict[str, str] = {}  # folder di job dir -> nama folder asal, mis. {"git_1": "myrepo"}
     roles: str = Field("", max_length=500)
 
 

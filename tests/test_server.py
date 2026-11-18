@@ -157,19 +157,32 @@ def test_too_many_items(client):
     assert r.status_code == 422
 
 
-def test_git_path(client, tmp_path, monkeypatch):
+def gitgen(c, rels, files=None, data=None):
+    files = files or [("git_file", (f"f{i}", b"x = 1")) for i, _ in enumerate(rels)]
+    return c.post("/api/generate", data={**FORM, "git_rel": rels, **(data or {})},
+                  files=[("fsd", ("a.docx", docx_bytes())), *files])
+
+
+def test_git_upload(client, tmp_path):
     login(client)
-    repo = tmp_path / "ws" / "app"
-    (repo / ".git").mkdir(parents=True)
-    plain = tmp_path / "ws" / "plain"
-    plain.mkdir()
-    send = lambda p: client.post("/api/generate", data={**FORM, "git_path": p}, files={"fsd": ("a.docx", docx_bytes())})
-    assert send(str(repo)).status_code == 422  # GIT_ROOTS belum diisi
-    monkeypatch.setenv("GIT_ROOTS", str(tmp_path / "ws"))
-    assert send(str(plain)).status_code == 422  # bukan repo
-    assert send(str(tmp_path)).status_code == 422  # di luar root
-    assert send(str(tmp_path / "ws" / ".." / "x")).status_code == 422
-    r = send(str(repo))
+    r = gitgen(client, ["1/app/src/a.py", "1/app/README.md", "2/lib/b.py"],
+               [("git_file", ("a", b"A")), ("git_file", ("r", b"R")), ("git_file", ("b", b"B"))])
     assert r.status_code == 200
-    form = json.loads((tmp_path / "jobs" / r.json()["job_id"] / "form.json").read_text())
-    assert form["git_paths"] == [str(repo.resolve())]
+    d = tmp_path / "jobs" / r.json()["job_id"]
+    assert (d / "git_1/src/a.py").read_bytes() == b"A" and (d / "git_2/b.py").read_bytes() == b"B"
+    assert json.loads((d / "form.json").read_text())["git_repos"] == {"git_1": "app", "git_2": "lib"}
+
+
+@pytest.mark.parametrize("rel", ["1/app/../../x", "/etc/passwd", "1/app", "0/app/a", "11/app/a", "x/app/a", "1/app//a", "1/app/a\\b"])
+def test_git_bad_path(client, rel):
+    login(client)
+    assert gitgen(client, [rel], [("git_file", ("a", b"A"))]).status_code == 422
+
+
+def test_git_limits(client, monkeypatch):
+    login(client)
+    assert gitgen(client, ["1/a/b", "1/a/c"], [("git_file", ("a", b"A"))]).status_code == 422  # jumlah tidak cocok
+    monkeypatch.setattr("app.server.GIT_MAX_FILE", 3)
+    assert gitgen(client, ["1/a/b"], [("git_file", ("a", b"AAAA"))]).status_code == 413
+    monkeypatch.setattr("app.server.GIT_MAX_FILES", 1)
+    assert gitgen(client, ["1/a/b", "1/a/c"]).status_code == 422

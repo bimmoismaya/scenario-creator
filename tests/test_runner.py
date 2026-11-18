@@ -73,9 +73,9 @@ def test_prompt():
     p = build_prompt(JobForm(dev=1, test=2, title="x"), ["fsd_1.md"])
     assert "Perlu verifikasi" in p and "fsd_1.md" in p and "DATA" in p
     p2 = build_prompt(JobForm(dev=1, test=2, title="x", figma_urls=["https://figma.com/design/a", "https://figma.com/design/b"],
-                              git_paths=["/r/app"]), ["fsd_1.md", "fsd_2.md"])
+                              git_repos={"git_1": "app"}), ["fsd_1.md", "fsd_2.md"])
     assert "https://figma.com/design/a" in p2 and "https://figma.com/design/b" in p2
-    assert "fsd_2.md" in p2 and '"/r/app"' in p2
+    assert "fsd_2.md" in p2 and "`git_1/`" in p2 and '"app"' in p2
     p3 = build_prompt(JobForm(dev=1, test=2, title="x", roles="Admin, Staff"), ["fsd_1.md"])
     assert '"Admin, Staff"' in p3 and "non-interaktif" in p3
 
@@ -99,11 +99,11 @@ def test_claude_args_model(monkeypatch, tmp_path):
     assert a[a.index("--model") + 1] == "sonnet"
 
 
-def test_allowed_tools_git_read_only():
+def test_allowed_tools_read_only_for_git():
     from app.runner import allowed_tools
-    t = allowed_tools(Path("/j"), ["/r/app"])
-    assert "Read(//r/app/**)" in t and "Grep" in t
-    assert not any("Write(/" in x or "Edit" in x for x in t)
+    t = allowed_tools(Path("/j"))
+    assert "Grep" in t and "Glob" in t
+    assert not any(x.startswith("Edit") or x == "Bash" for x in t)
 
 
 def test_multi_fsd_converted(tmp_path, monkeypatch):

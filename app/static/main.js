@@ -26,7 +26,7 @@ const SOURCES = [
     { id: "fsd", label: "Dokumen FSD", note: "(.docx atau .pdf, maks 20 MB; minimal satu)", type: "file", accept: ".docx,.pdf" },
     { id: "swagger_url", label: "Link Swagger / API contract", note: "(opsional)", type: "url", ph: "https://..." },
     { id: "figma_url", label: "Link Figma", note: "(opsional)", type: "url", ph: "https://www.figma.com/design/..." },
-    { id: "git_path", label: "Folder Git lokal", note: "(opsional; path absolut di mesin server, dibaca langsung, tidak diunggah)", type: "text", ph: "/home/user/git/proyek" },
+    { id: "git_path", label: "Folder Git lokal", note: "(opsional; pilih folder repo. Isinya diunggah tanpa .git, node_modules, file biner, dan file di atas 1 MB)", type: "file", dir: true },
 ];
 function sourceGroup(s) {
     const root = $(s.id), rows = el("div");
@@ -38,6 +38,8 @@ function sourceGroup(s) {
         const inp = el("input", { type: s.type, name: s.id });
         if (s.accept)
             inp.setAttribute("accept", s.accept);
+        if (s.dir)
+            inp.setAttribute("webkitdirectory", "");
         if (s.ph)
             inp.setAttribute("placeholder", s.ph);
         const del = el("button", { type: "button", class: "ghost" }, "Hapus");
@@ -54,6 +56,25 @@ function sourceGroup(s) {
 SOURCES.forEach(sourceGroup);
 const inputs = (id) => [...$(id).querySelectorAll("input")];
 const vals = (id) => inputs(id).map(i => i.value.trim()).filter(Boolean);
+// Folder Git: browser tidak memberi path, jadi isi folder diunggah. Saring yang tidak berguna untuk analisa.
+const GIT_SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".venv", "venv", "__pycache__", ".next", "target", "vendor", ".idea", ".vscode"]);
+const GIT_SKIP_FILES = /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|jar|woff2?|ttf|eot|mp[34]|mov|exe|dll|so|class|lock)$/i;
+const GIT_MAX_FILES = 900, GIT_MAX_FILE = 1024 * 1024, GIT_MAX_TOTAL = 30 * 1024 * 1024;
+function gitFiles() {
+    const out = [];
+    let n = 0;
+    for (const inp of inputs("git_path")) {
+        const keep = [...(inp.files ?? [])].filter(f => {
+            const parts = f.webkitRelativePath.split("/");
+            return parts.length >= 2 && !parts.slice(1, -1).some(p => GIT_SKIP_DIRS.has(p)) && !GIT_SKIP_FILES.test(f.name) && f.size <= GIT_MAX_FILE;
+        });
+        if (!keep.length)
+            continue;
+        n++;
+        keep.forEach(f => out.push({ rel: `${n}/${f.webkitRelativePath}`, file: f }));
+    }
+    return out;
+}
 const fsdFiles = () => inputs("fsd").flatMap(i => [...(i.files ?? [])]);
 function showLogin() { try {
     sessionStorage.removeItem("in");
@@ -97,11 +118,17 @@ $("form").addEventListener("submit", async (ev) => {
         if (f.size > 20 * 1024 * 1024)
             return showErr("formErr", "File FSD lebih dari 20 MB: " + f.name);
     }
+    const git = gitFiles();
+    if (git.length > GIT_MAX_FILES)
+        return showErr("formErr", `Folder Git berisi ${git.length} file setelah disaring (maks ${GIT_MAX_FILES}). Pilih subfolder yang lebih kecil, mis. src.`);
+    if (git.reduce((a, g) => a + g.file.size, 0) > GIT_MAX_TOTAL)
+        return showErr("formErr", "Folder Git lebih dari 30 MB setelah disaring. Pilih subfolder yang lebih kecil.");
     const fd = new FormData();
     for (const k of ["dev", "test", "title", "environment", "scope_note", "roles"])
         fd.append(k, field(k).value.trim());
-    for (const k of ["swagger_url", "figma_url", "git_path"])
+    for (const k of ["swagger_url", "figma_url"])
         vals(k).forEach(v => fd.append(k, v));
+    git.forEach(g => { fd.append("git_file", g.file); fd.append("git_rel", g.rel); });
     files.forEach(f => fd.append("fsd", f));
     setBusy(true);
     show("result", false);
