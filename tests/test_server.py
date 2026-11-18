@@ -102,7 +102,7 @@ def test_full_flow_and_safe_name(client, tmp_path):
         time.sleep(0.1)
     assert j["state"] == "done" and "skenario" in j["preview"]
     d = tmp_path / "jobs" / jid
-    assert (d / "x.docx").exists() and (d / "fsd.md").read_text().strip() == "Isi FSD"
+    assert (d / "1_x.docx").exists() and (d / "fsd_1.md").read_text().strip() == "Isi FSD"
     assert not (tmp_path / "x.docx").exists()
     assert client.get(f"/api/jobs/{jid}/download").content == b"PK-fake"
 
@@ -138,3 +138,73 @@ def test_roles_too_long_422(client):
     r = client.post("/api/generate", data={"dev": "1", "test": "2", "title": "t", "roles": "x" * 501},
                     files={"fsd": ("a.docx", b"x")})
     assert r.status_code == 422
+
+
+def test_multi_sources(client, tmp_path):
+    login(client)
+    r = client.post("/api/generate", data={**FORM, "swagger_url": ["http://a/x", " ", "http://b/y"], "figma_url": "https://f/1"},
+                    files=[("fsd", ("a.docx", docx_bytes("A"))), ("fsd", ("b.docx", docx_bytes("B")))])
+    assert r.status_code == 200
+    d = tmp_path / "jobs" / r.json()["job_id"]
+    assert (d / "fsd_1.md").read_text().strip() == "A" and (d / "fsd_2.md").read_text().strip() == "B"
+    form = json.loads((d / "form.json").read_text())
+    assert form["swagger_urls"] == ["http://a/x", "http://b/y"] and form["figma_urls"] == ["https://f/1"]
+
+
+def test_too_many_items(client):
+    login(client)
+    r = client.post("/api/generate", data={**FORM, "swagger_url": ["http://a"] * 11}, files={"fsd": ("a.docx", docx_bytes())})
+    assert r.status_code == 422
+
+
+def gitgen(c, paths):
+    return c.post("/api/generate", data={**FORM, "git_path": paths}, files=[("fsd", ("a.docx", docx_bytes()))])
+
+
+@pytest.fixture
+def roots(tmp_path, monkeypatch):
+    root = tmp_path / "git"
+    (root / "app" / ".git").mkdir(parents=True)
+    (root / "lib").mkdir()
+    (tmp_path / "secret").mkdir()
+    (root / "evil").symlink_to(tmp_path / "secret")
+    monkeypatch.setenv("GIT_ROOTS", str(root))
+    return root
+
+
+def test_git_folder_selected(client, roots, tmp_path):
+    login(client)
+    r = gitgen(client, [str(roots / "app")])
+    assert r.status_code == 200
+    d = tmp_path / "jobs" / r.json()["job_id"]
+    assert json.loads((d / "form.json").read_text())["git_repos"] == {str((roots / "app").resolve()): "app"}
+    assert not any(d.glob("git_*"))  # tidak ada file repo yang disalin
+
+
+@pytest.mark.parametrize("bad", ["/etc", "relatif/app", "ROOT/../secret", "ROOT/evil", "ROOT/tidak-ada", "ROOT", "ROOT/lib"])
+def test_git_folder_rejected(client, roots, bad):
+    login(client)
+    assert gitgen(client, [bad.replace("ROOT", str(roots))]).status_code == 422
+
+
+def test_git_folder_too_many(client, roots):
+    login(client)
+    assert gitgen(client, [str(roots / "app")] * 11).status_code == 422
+
+
+def test_git_folder_roots_empty(client, monkeypatch, tmp_path):
+    monkeypatch.delenv("GIT_ROOTS", raising=False)
+    login(client)
+    assert gitgen(client, [str(tmp_path)]).status_code == 422
+
+
+def test_git_dirs_listing(client, roots):
+    assert client.get("/api/git/dirs").status_code == 401
+    login(client)
+    top = client.get("/api/git/dirs").json()
+    assert top["dirs"][0]["path"] == str(roots.resolve()) and top["parent"] == ""
+    sub = client.get("/api/git/dirs", params={"path": str(roots)}).json()
+    assert {(d["name"], d["repo"]) for d in sub["dirs"]} == {("app", True), ("lib", False)}  # symlink keluar root disembunyikan
+    assert sub["parent"] == "" and sub["repo"] is False
+    assert client.get("/api/git/dirs", params={"path": str(roots / "app")}).json()["repo"] is True
+    assert client.get("/api/git/dirs", params={"path": "/etc"}).status_code == 422

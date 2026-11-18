@@ -1,7 +1,7 @@
 # Scenario Creator
 
-Web internal untuk QA: upload FSD, tempel link Swagger dan Figma, tekan Generate, lihat preview, lalu unduh
-xlsx skenario testing. Isinya dibuat oleh Claude Code lewat skill `qa-scenario` (folder ini sendiri).
+Web internal untuk QA: upload FSD, tempel link Swagger dan Figma, pilih folder repo Git di server, tekan Generate,
+lihat preview, lalu unduh xlsx skenario testing. Isinya dibuat oleh Claude Code lewat skill `qa-scenario` (folder ini sendiri).
 
 Alat ini tidak terikat satu project. Setiap Generate berdiri sendiri dan hanya membaca dokumen yang diberikan.
 
@@ -53,6 +53,8 @@ itu, dan hanya satu Generate berjalan per waktu.
    - `CLAUDE_MODEL`: model yang dipakai Generate. Default `opus` (lebih rinci, lebih lama). Isi `sonnet` untuk
      lebih cepat dan hemat.
    - `JOBS_DIR`: folder hasil sementara. Default `jobs`.
+   - `GIT_ROOTS`: folder induk repo Git di mesin server yang boleh dipilih di form (pisahkan dengan `:`). Repo dibaca
+     langsung dari disk, tanpa upload, dan hanya baca. Kosong: sumber Git ditolak.
 
    Jangan commit atau bagikan `.env`. Server menolak start kalau `APP_PASSWORD` kosong.
 
@@ -73,15 +75,41 @@ Buka `http://localhost:8000` dan login dengan `APP_PASSWORD`. Server mendengarka
 
 Dokumen besar bisa memakan belasan menit, terutama dengan Opus.
 
-## Memakai
+## Memakai (tutorial)
 
-1. Isi info sprint (dev, testing, nama dokumen/fitur) dan upload FSD (`.docx` atau `.pdf`, maksimal 20 MB).
-2. Opsional: link Swagger/OpenAPI, link Figma, daftar role user, dan batasan scope. Kosongkan batasan scope untuk
-   mengerjakan seluruh dokumen.
-3. Tekan Generate, tunggu sampai selesai, periksa preview dan panel peringatan mutu, lalu unduh xlsx.
+1. **Login.** Buka web, masukkan `APP_PASSWORD`. Tiga kali salah mengunci login 5 menit.
+2. **Info sprint (wajib).** Isi sprint dev, sprint testing, dan nama dokumen/fitur (hanya label). Environment
+   default `Staging`. Role user dan batasan scope opsional. Kosongkan batasan scope untuk mengerjakan seluruh dokumen.
+3. **Sumber.** Hanya FSD yang wajib. Tiap sumber boleh sampai 10 isian (tombol **+ Tambah**).
+   - **FSD:** `.docx` atau `.pdf`, maksimal 20 MB per file. Lebih dari satu FSD dianggap satu fitur.
+   - **Swagger / API contract:** tempel link. Hanya host dari link ini yang boleh dibuka Claude.
+   - **Figma:** tempel link. Lihat panduan Figma di bawah.
+   - **Folder Git lokal:** klik **Pilih folder**, telusuri daftar folder di server, masuk ke repo (ditandai `[git]`),
+     lalu **Pilih folder ini**. Tombol hanya aktif di folder repo (berisi `.git`). Tidak ada file yang diunggah:
+     Claude membaca repo langsung dari disk, hanya baca. File rahasia (`.env*`, `*.pem`, `*.key`, `id_rsa*`) tidak
+     bisa dibaca. Daftar hanya menampilkan folder di bawah `GIT_ROOTS`.
+   - Tanpa Swagger, Figma, atau folder Git, Generate tetap jalan; case terkait ditandai `Perlu verifikasi`.
+4. **Generate.** Tekan **Generate skenario** dan biarkan halaman terbuka. Kartu progres menampilkan tahap
+   (Membaca FSD, Menelusuri kode repo, Membaca Swagger/Figma, Menulis case, Memvalidasi spec), hitungan langkah,
+   dan waktu berjalan. Dokumen besar dengan Opus bisa belasan menit; hanya satu job berjalan per waktu, job lain antre.
+5. **Hasil.** Periksa panel peringatan mutu dan tab **Statistic**, **Skenario**, **Analisa**, **Bug List**.
+   Tekan **Unduh Excel** untuk mengambil xlsx.
 
-Figma sering tidak bisa dibaca AI bila file privat. Gunakan **Duplicate to drafts**, ubah akses duplikat menjadi
-"Anyone with the link can view", lalu tempel link duplikat itu. Panduan yang sama ada di halaman web.
+**Figma.** Figma sering tidak bisa dibaca AI bila file privat. Gunakan **Duplicate to drafts**, ubah akses duplikat
+menjadi "Anyone with the link can view", lalu tempel link duplikat itu. Panduan yang sama ada di halaman web.
+
+**Pesan yang sering muncul**
+
+| Pesan | Artinya |
+|---|---|
+| Sprint dev, sprint testing, dan judul wajib diisi | Isian info sprint belum lengkap |
+| Pilih minimal satu file FSD | FSD belum dipilih |
+| Pilih folder repo Git (berisi .git) | Folder yang dipilih bukan repo, atau folder induknya |
+| Folder Git di luar GIT_ROOTS | Folder tidak di bawah `GIT_ROOTS` di server |
+| GIT_ROOTS belum diisi di server | Admin belum mengisi `GIT_ROOTS` di `.env`; sumber Git ditolak |
+
+**Repo harus ada di server.** Yang dipilih adalah folder di mesin server, bukan di laptop Anda. QA yang membuka web
+dari laptop lain perlu repo itu di-`git clone` ke bawah `GIT_ROOTS` di server (minta admin).
 
 ## Memperbarui
 
@@ -101,6 +129,11 @@ Restart `./run.sh`. Symlink skill tidak perlu dibuat ulang karena menunjuk ke fo
   Bersihkan manual dengan `rm -rf jobs/*`.
 - **Privasi:** isi FSD, Swagger, dan Figma diproses oleh Claude (Anthropic) lewat akun yang login di mesin server.
 - **Tes:** `.venv/bin/python -m pytest -q`.
+- **Keamanan Claude saat Generate:** hanya boleh menulis di folder job; repo hanya dibaca; `WebFetch` hanya ke host
+  Swagger yang diisi; `.env` dan kunci di repo tidak bisa dibaca. Symlink di dalam repo yang menunjuk ke luar
+  `GIT_ROOTS` tidak diblokir, jadi pilih `GIT_ROOTS` yang hanya berisi repo tepercaya.
+- **Mengubah UI:** edit `src/ui/main.ts`, lalu `npm install` (sekali) dan `npm run build` untuk memperbarui
+  `app/static/main.js`. Commit keduanya.
 
 ## Struktur
 

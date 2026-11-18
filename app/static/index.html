@@ -16,8 +16,10 @@ main{max-width:960px;margin:0 auto;padding:20px 16px 48px}
 h2{margin:0 0 12px;font-size:16px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
 .full{grid-column:1/-1}
-label{display:block;font-weight:600;font-size:13px;margin-bottom:4px}
-label small{font-weight:400;color:var(--mute)}
+label,.lbl{display:block;font-weight:600;font-size:13px;margin-bottom:4px}
+label small,.lbl small{font-weight:400;color:var(--mute)}
+.src-row{display:flex;gap:8px;margin-bottom:6px}.src-row input{flex:1;min-width:0}
+.src-row button,.src-add{padding:8px 12px}
 input,textarea,select{width:100%;font:inherit;padding:9px 10px;border:1px solid #9aa5b8;border-radius:var(--r);background:#fff;color:var(--ink)}
 input[type=file]{padding:7px}
 textarea{min-height:64px;resize:vertical}
@@ -57,11 +59,13 @@ td ol{margin:0;padding-left:18px}
 .acard{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:10px}
 .acard p{margin:4px 0}
 .k{color:var(--mute);font-size:13px}
+dialog{border:1px solid var(--line);border-radius:var(--r);padding:16px;width:min(560px,92vw)}dialog::backdrop{background:#0006}
+#pk-list{list-style:none;margin:8px 0;padding:0;max-height:50vh;overflow:auto}#pk-list button{width:100%;text-align:left;background:#fff;color:var(--ink);border:0;border-bottom:1px solid var(--line);border-radius:0;font-weight:400}
 @media (max-width:640px){.grid{grid-template-columns:1fr}main{padding:14px 12px 40px}}
 </style>
 </head>
 <body>
-<header><div><b>Scenario Creator</b><span>Dari FSD, Swagger, dan Figma menjadi Excel skenario</span></div></header>
+<header><div><b>Scenario Creator</b><span>Dari FSD, Swagger, Figma, dan repo Git menjadi Excel skenario</span></div></header>
 <main>
 
 <section id="login" class="card login hidden">
@@ -87,9 +91,9 @@ td ol{margin:0;padding-left:18px}
   </div>
   <h2 style="margin-top:20px">Sumber</h2>
   <div class="grid">
-    <div class="full"><label for="fsd">Dokumen FSD <small>(.docx atau .pdf, maks 20 MB)</small></label><input id="fsd" type="file" accept=".docx,.pdf" required></div>
-    <div class="full"><label for="swagger_url">Link Swagger / API contract <small>(opsional)</small></label><input id="swagger_url" type="url" placeholder="https://..."></div>
-    <div class="full"><label for="figma_url">Link Figma <small>(opsional)</small></label><input id="figma_url" type="url" placeholder="https://www.figma.com/design/...">
+    <div class="full" id="fsd"></div>
+    <div class="full" id="swagger_url"></div>
+    <div class="full"><div id="figma_url"></div>
       <details><summary>Cara menyiapkan link Figma</summary>
         <ol>
           <li>Buka file Figma, klik kanan file di daftar lalu pilih <b>Duplicate to drafts</b>.</li>
@@ -98,16 +102,29 @@ td ol{margin:0;padding-left:18px}
           <li>Salin link dan tempel di kolom ini.</li>
         </ol>
       </details>
-      <p class="hint">Tanpa link Swagger atau Figma, generate tetap jalan; case terkait ditandai "Perlu verifikasi".</p>
     </div>
+    <div class="full" id="git_path"></div>
   </div>
+  <p class="hint">Hanya FSD yang wajib. Tanpa Swagger, Figma, atau folder Git, generate tetap jalan; case terkait ditandai "Perlu verifikasi".</p>
   <p id="formErr" class="err hidden" role="alert"></p>
   <p style="margin:16px 0 0"><button id="generate" type="submit">Generate skenario</button></p>
   <p class="hint">Dokumen besar bisa memakan belasan menit.</p>
 </form>
 
+<dialog id="picker" aria-labelledby="pk-title">
+  <h2 id="pk-title">Pilih folder Git</h2>
+  <p class="k" id="pk-path"></p>
+  <ul id="pk-list"></ul>
+  <p id="pk-err" class="err hidden" role="alert"></p>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" class="ghost" id="pk-up">Naik</button>
+    <button type="button" class="ghost" id="pk-cancel">Batal</button>
+    <button type="button" id="pk-ok">Pilih folder ini</button>
+  </div>
+</dialog>
+
 <section id="progress" class="card hidden" aria-live="polite">
-  <div class="prog"><div class="spin" aria-hidden="true"></div><div><b id="stage">Menunggu antrian</b><div id="queue" class="k"></div></div></div>
+  <div class="prog"><div class="spin" aria-hidden="true"></div><div><b id="stage">Menunggu antrian</b><div id="queue" class="k"></div><div id="elapsed" class="k"></div></div></div>
   <p class="hint">Proses bisa memakan beberapa menit. Biarkan halaman ini terbuka.</p>
 </section>
 
@@ -122,149 +139,6 @@ td ol{margin:0;padding-left:18px}
 </section>
 </div>
 </main>
-<script>
-"use strict";
-const $ = id => document.getElementById(id);
-const TABS = [["statistic","Statistic"],["skenario","Skenario"],["analisa","Analisa"],["bugs","Bug List"]];
-let timer = null, preview = null, current = "statistic";
-
-// Semua teks dari spec lewat node teks DOM, bukan markup mentah.
-function el(tag, props, ...kids){
-  const e = document.createElement(tag);
-  if (props) for (const k in props){ if (k === "class") e.className = props[k]; else e.setAttribute(k, props[k]); }
-  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k)));
-  return e;
-}
-const show = (id, on) => $(id).classList.toggle("hidden", !on);
-function showErr(id, msg){ $(id).textContent = msg; show(id, !!msg); }
-
-function showLogin(){ try{sessionStorage.removeItem("in")}catch(e){} show("app", false); show("login", true); }
-function showApp(){ try{sessionStorage.setItem("in","1")}catch(e){} show("login", false); show("app", true); }
-let signedIn = false; try{ signedIn = sessionStorage.getItem("in") === "1"; }catch(e){}
-signedIn ? showApp() : showLogin();
-
-$("loginForm").addEventListener("submit", async ev => {
-  ev.preventDefault(); showErr("loginErr", "");
-  const r = await fetch("/api/login", {method:"POST", body:new URLSearchParams({password:$("password").value})}).catch(() => null);
-  if (!r) return showErr("loginErr", "Server tidak terjangkau.");
-  if (r.ok){ $("password").value = ""; return showApp(); }
-  showErr("loginErr", r.status === 429 ? "Terlalu banyak percobaan salah. Coba lagi 5 menit lagi." : "Password salah.");
-});
-
-function setBusy(b){ $("generate").disabled = b; $("generate").textContent = b ? "Sedang diproses..." : "Generate skenario"; }
-
-$("form").addEventListener("submit", async ev => {
-  ev.preventDefault(); showErr("formErr", "");
-  const f = $("fsd").files[0];
-  if (!$("dev").value || !$("test").value || !$("title").value.trim()) return showErr("formErr", "Sprint dev, sprint testing, dan judul wajib diisi.");
-  if (!f) return showErr("formErr", "Pilih file FSD (.docx atau .pdf).");
-  if (!/\.(docx|pdf)$/i.test(f.name)) return showErr("formErr", "Ekstensi FSD harus .docx atau .pdf.");
-  if (f.size > 20*1024*1024) return showErr("formErr", "File FSD lebih dari 20 MB.");
-  const fd = new FormData();
-  for (const k of ["dev","test","title","environment","scope_note","roles","swagger_url","figma_url"]) fd.append(k, $(k).value.trim());
-  fd.append("fsd", f);
-  setBusy(true); show("result", false); show("progress", true);
-  $("stage").textContent = "Mengunggah..."; $("queue").textContent = "";
-  const r = await fetch("/api/generate", {method:"POST", body:fd}).catch(() => null);
-  if (!r) return fail("Server tidak terjangkau.");
-  if (r.status === 401){ fail(""); return showLogin(); }
-  if (!r.ok){
-    const m = {413:"File lebih dari 20 MB.", 422:"Isian belum lengkap atau jenis file salah."}[r.status];
-    return fail(m || "Gagal memulai job (HTTP " + r.status + ").");
-  }
-  const {job_id} = await r.json();
-  poll(job_id);
-});
-
-function fail(msg){ clearTimeout(timer); setBusy(false); show("progress", false); showErr("formErr", msg); }
-
-function poll(id){
-  clearTimeout(timer);
-  fetch("/api/jobs/" + encodeURIComponent(id)).then(async r => {
-    if (r.status === 401){ fail(""); return showLogin(); }
-    if (!r.ok) return fail("Status job tidak bisa dibaca (HTTP " + r.status + ").");
-    const j = await r.json();
-    if (j.state === "done"){ setBusy(false); show("progress", false); return render(id, j.preview); }
-    if (j.state === "failed") return fail("Job gagal: " + (j.error || "alasan tidak diketahui") + ". Hubungi admin bila berulang.");
-    $("stage").textContent = j.stage || (j.state === "queued" ? "Menunggu antrian" : "Memproses");
-    $("queue").textContent = j.state === "queued" && j.queue_pos > 0 ? "Antrian: " + j.queue_pos + " job di depan Anda" : "";
-    timer = setTimeout(() => poll(id), 3000);
-  }).catch(() => { timer = setTimeout(() => poll(id), 3000); });
-}
-
-function render(id, p){
-  preview = p || {}; current = "statistic";
-  $("download").href = "/api/jobs/" + encodeURIComponent(id) + "/download";
-  drawWarn(); show("result", true); drawTabs(); drawPanel();
-  $("result").scrollIntoView({behavior:"smooth"});
-}
-function drawWarn(){
-  const w = $("warn"), items = (preview.peringatan||[]).filter(x => typeof x === "string");
-  w.replaceChildren(); show("warn", items.length > 0);
-  if (items.length) w.append(el("b", null, "Peringatan mutu"), el("ul", null, ...items.map(x => el("li", null, x))));
-}
-function drawTabs(){
-  const t = $("tabs"); t.replaceChildren();
-  for (const [k, name] of TABS){
-    const n = k === "statistic" ? "" : " (" + countOf(k) + ")";
-    const b = el("button", {type:"button", role:"tab", "aria-selected": String(k === current)}, name + n);
-    b.onclick = () => { current = k; drawTabs(); drawPanel(); };
-    t.append(b);
-  }
-}
-const countOf = k => k === "skenario" ? (preview.skenario||[]).reduce((a,s) => a + (s.cases||[]).length, 0) : (preview[k]||[]).length;
-const empty = msg => el("p", {class:"hint"}, msg);
-
-function drawPanel(){
-  const p = $("panel"); p.replaceChildren(({statistic, skenario, analisa, bugs})[current]());
-}
-function statistic(){
-  const s = preview.statistic || {};
-  const box = (title, obj) => el("div", {class:"stat"}, el("h3", null, title),
-    ...Object.entries(obj||{}).map(([k,v]) => el("div", {class:"row"}, el("span", null, k ?? "-"), el("b", null, v))));
-  return el("div", {class:"stats"},
-    el("div", {class:"stat"}, el("h3", null, "Total test case"), el("div", {class:"n"}, s.total ?? 0)),
-    box("Tipe", s.type), box("Prioritas", s.priority), box("Platform", s.platform));
-}
-function skenario(){
-  const secs = preview.skenario || [];
-  if (!secs.length) return empty("Tidak ada skenario.");
-  const out = el("div");
-  for (const s of secs){
-    out.append(el("div", {class:"sec"}, s.title));
-    const rows = (s.cases||[]).map((c, i) => {
-      const warn = /perlu verifikasi/i.test((c.notes||"") + (c.expected||[]).join(" "));
-      return el("tr", null,
-        el("td", null, i+1), el("td", null, c.type), el("td", null, c.priority),
-        el("td", null, c.desc, warn ? el("div", null, el("span", {class:"tag warn"}, "Perlu verifikasi")) : null),
-        el("td", null, el("ol", null, (c.steps||[]).map(x => el("li", null, x)))),
-        el("td", null, el("ol", null, (c.expected||[]).map(x => el("li", null, x)))),
-        el("td", null, c.platform), el("td", null, c.notes));
-    });
-    out.append(el("div", {class:"tw"}, el("table", null,
-      el("thead", null, el("tr", null, ["No","Tipe","Prio","Deskripsi","Langkah","Hasil diharapkan","Platform","Notes"].map(h => el("th", null, h)))),
-      el("tbody", null, rows))));
-  }
-  return out;
-}
-function analisa(){
-  const a = preview.analisa || [];
-  if (!a.length) return empty("Tidak ada temuan analisa.");
-  return el("div", null, a.map(x => el("div", {class:"acard"},
-    el("div", null, el("span", {class:"tag"}, x.category), " ", el("span", {class:"k"}, [x.ref, x.source, x.confidence && "keyakinan " + x.confidence].filter(Boolean).join(" | "))),
-    el("p", null, x.finding),
-    x.impact ? el("p", null, el("span", {class:"k"}, "Dampak: "), x.impact) : null,
-    x.question ? el("p", null, el("span", {class:"k"}, "Pertanyaan: "), x.question) : null,
-    x.cases ? el("p", {class:"k"}, "Case terkait: " + x.cases) : null)));
-}
-function bugs(){
-  const b = preview.bugs || [];
-  if (!b.length) return empty("Belum ada bug tercatat. Daftar ini diisi tester saat pengujian.");
-  const keys = Object.keys(b[0]);
-  return el("div", {class:"tw"}, el("table", null,
-    el("thead", null, el("tr", null, keys.map(k => el("th", null, k)))),
-    el("tbody", null, b.map(r => el("tr", null, keys.map(k => el("td", null, r[k])))))));
-}
-</script>
+<script src="/static/main.js"></script>
 </body>
 </html>

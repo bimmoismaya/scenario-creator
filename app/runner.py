@@ -6,6 +6,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app.finalize import FinalizeError, finalize
 from app.jobs import JobForm, JobStore
@@ -19,14 +20,25 @@ _FIGMA = ["create_session", "get_metadata", "get_design_context", "get_screensho
 # sehingga Claude tidak bisa menulis ke skill/skrip. Uji nyata: aturan "Write(spec.json)" ditolak semua.
 # Bash: wildcard di tengah agar tanda kutip pada path skrip tidak memutus pencocokan.
 def allowed_tools(job_dir: Path) -> list[str]:
-    return ["Skill", "Read", "Write(*)", "WebFetch",
+    return ["Skill", "Read", "Write(*)", "WebFetch", "Glob", "Grep",
             "Bash(*build_scenario.py* spec.json --check)",
             *[f"mcp__claude_ai_Figma__{t}" for t in _FIGMA]]
 
 
-def claude_args(prompt: str, job_dir: Path) -> list[str]:
+# Rahasia umum di repo yang tidak boleh dibaca Claude (isinya bisa bocor ke spec/Excel).
+_SECRETS = ["Read(**/.env*)", "Read(**/*.pem)", "Read(**/*.key)", "Read(**/id_rsa*)"]
+
+
+def claude_args(prompt: str, job_dir: Path, repos: tuple | list = (), swagger_urls: tuple | list = ()) -> list[str]:
+    # WebFetch hanya ke host Swagger yang diisi user; tanpa link, tanpa WebFetch.
+    hosts = sorted({h for u in swagger_urls if (h := urlparse(u).hostname)})
+    tools = [t for t in allowed_tools(job_dir) if t != "WebFetch"] + [f"WebFetch(domain:{h})" for h in hosts]
+    # Repo dibaca langsung dari disk; Edit(...) menolak semua penulisan ke repo (deny menang atas "Write(*)").
+    deny = [*_SECRETS, *[f"Edit(/{r}/**)" for r in repos]]
     return ["-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--allowedTools", *allowed_tools(job_dir), "--add-dir", str(Path(job_dir).resolve()),
+            "--allowedTools", *tools, "--add-dir", str(Path(job_dir).resolve()),
+            *[x for r in repos for x in ("--add-dir", r)],
+            "--disallowedTools", *deny,
             "--model", os.environ.get("CLAUDE_MODEL", "opus"),
             "--permission-mode", "dontAsk", "--no-session-persistence"]
 
@@ -38,24 +50,40 @@ def clean(text: str, limit: int = 300) -> str:
     return text[:limit]
 
 
-def stage_of(ev: dict) -> str | None:
-    """Tahap hanya dari nama tool; isi event tidak pernah dipakai."""
+def stage_of(ev: dict, n: dict | None = None) -> str | None:
+    """Tahap hanya dari nama tool dan awalan path; isi event tidak pernah dipakai. `n` = penghitung langkah + daftar path repo."""
     if ev.get("type") != "assistant":
         return None
+    n = n if n is not None else {}
     stage = None
     for b in ev.get("message", {}).get("content", []):
         if not isinstance(b, dict):
             continue
         if b.get("type") == "text":
-            stage = stage or "Analisa"
+            stage = stage or "Menganalisa"
         elif b.get("type") == "tool_use":
-            name = str(b.get("name", ""))
+            name, inp = str(b.get("name", "")), b.get("input")
+            path = Path(str((inp or {}).get("file_path", "")) if isinstance(inp, dict) else "").name
             if name == "Write":
-                stage = "Menulis case"
+                n["w"] = n.get("w", 0) + 1
+                stage = f"Menulis case (berkas ke-{n['w']})"
             elif name == "Bash":
-                stage = "Validasi"
-            else:  # Skill, Read, WebFetch, mcp__*
-                stage = "Membaca sumber"
+                stage = "Memvalidasi spec"
+            elif name == "Read" and path.startswith("fsd_"):
+                stage = "Membaca FSD"
+            elif name in ("Read", "Glob", "Grep"):
+                where = str(inp.get("file_path") or inp.get("path") or "") if isinstance(inp, dict) else ""
+                if any(where.startswith(r) for r in n.get("repos", ())):
+                    n["r"] = n.get("r", 0) + 1
+                    stage = f"Menelusuri kode repo ({n['r']} langkah)"
+                else:
+                    stage = "Membaca referensi skill"
+            elif name == "WebFetch":
+                stage = "Membaca Swagger"
+            elif name.startswith("mcp__"):
+                stage = "Membaca desain Figma"
+            else:
+                stage = "Memuat skill QA"
     return stage
 
 
@@ -68,11 +96,14 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
         store.set_status(job_id, state="failed", error=clean(msg))
 
     store.set_status(job_id, state="running", stage="Membaca sumber", queue_pos=0)
-    uploads = sorted(p for p in d.iterdir() if p.suffix.lower() in (".docx", ".pdf"))
+    # Urut numerik menurut awalan "{i}_" dari server ("10_x" sesudah "2_x").
+    num = lambda p: (int(m[1]) if (m := re.match(r"(\d+)_", p.name)) else 10**9, p.name)
+    uploads = sorted((p for p in d.iterdir() if p.suffix.lower() in (".docx", ".pdf")), key=num)
     if not uploads:
         return fail("File FSD tidak ditemukan di folder job")
     try:
-        (d / "fsd.md").write_text(fsd_to_text(uploads[0]), encoding="utf-8")
+        for i, u in enumerate(uploads, 1):
+            (d / f"fsd_{i}.md").write_text(fsd_to_text(u), encoding="utf-8")
     except ValueError as e:
         return fail(str(e))
     (d / "input.json").write_text(form.model_dump_json(), encoding="utf-8")
@@ -80,7 +111,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
     (d / "spec.json").unlink(missing_ok=True)
     with tempfile.TemporaryFile("w+") as err:
         try:
-            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, "fsd.md"), d), cwd=d,
+            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, [f"fsd_{i}.md" for i in range(1, len(uploads) + 1)]), d, list(form.git_repos), form.swagger_urls), cwd=d,
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, text=True)
         except OSError as e:
             return fail(f"Claude Code tidak dapat dijalankan: {e.strerror or type(e).__name__}")
@@ -92,7 +123,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
 
         timer = threading.Timer(timeout, kill)
         timer.start()
-        result = None
+        result, steps = None, {"repos": list(form.git_repos)}
         try:
             for line in proc.stdout:
                 try:
@@ -103,7 +134,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
                     continue
                 if ev.get("type") == "result":
                     result = ev
-                elif (s := stage_of(ev)):
+                elif (s := stage_of(ev, steps)):
                     store.set_status(job_id, stage=s)
             rc = proc.wait()
         finally:

@@ -7,3 +7,4 @@ samples/
 .claude/
 *.xlsx
 !assets/template.xlsx
+node_modules/
