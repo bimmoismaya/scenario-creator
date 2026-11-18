@@ -53,6 +53,7 @@ itu, dan hanya satu Generate berjalan per waktu.
    - `CLAUDE_MODEL`: model yang dipakai Generate. Default `opus` (lebih rinci, lebih lama). Isi `sonnet` untuk
      lebih cepat dan hemat.
    - `JOBS_DIR`: folder hasil sementara. Default `jobs`.
+   - `GIT_ROOTS`: folder induk repo Git yang boleh dipilih di form (pisahkan dengan `:`). Kosong berarti sumber Git ditolak.
 
    Jangan commit atau bagikan `.env`. Server menolak start kalau `APP_PASSWORD` kosong.
 

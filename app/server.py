@@ -15,9 +15,10 @@ from pydantic import ValidationError
 
 from app.finalize import preview_data
 from app.jobs import JobForm, JobStore, Queue
-from app.sources import fsd_to_text, safe_name
+from app.sources import fsd_to_text, git_repo, git_roots, safe_name
 
 MAX_UPLOAD = 20 * 1024 * 1024
+MAX_ITEMS = 10  # per sumber
 STATIC = Path(__file__).parent / "static"
 SESSION_AGE = 7 * 86400
 
@@ -76,27 +77,40 @@ def create_app(run_job=None) -> FastAPI:
     @app.post("/api/generate")
     async def generate(request: Request, dev: str = Form(""), test: str = Form(""), title: str = Form(""),
                        environment: str = Form("Staging"), scope_note: str = Form(""),
-                       swagger_url: str = Form(""), figma_url: str = Form(""), roles: str = Form(""),
-                       fsd: UploadFile = File(...)):
+                       swagger_url: list[str] = Form([]), figma_url: list[str] = Form([]),
+                       git_path: list[str] = Form([]), roles: str = Form(""),
+                       fsd: list[UploadFile] = File(...)):
         auth(request)
+        clean_list = lambda xs: [x.strip() for x in xs if x.strip()]
+        swagger_url, figma_url, git_path = map(clean_list, (swagger_url, figma_url, git_path))
+        if not fsd or max(len(fsd), len(swagger_url), len(figma_url), len(git_path)) > MAX_ITEMS:
+            raise HTTPException(422, f"Maksimal {MAX_ITEMS} isian per sumber, minimal satu FSD")
         try:
             if not title.strip():
                 raise ValueError("title")
+            repos = [git_repo(g, git_roots()) for g in git_path]
             form = JobForm(dev=dev, test=test, title=title.strip(), environment=environment or "Staging",
-                           scope_note=scope_note, swagger_url=swagger_url, figma_url=figma_url, roles=roles)
-        except (ValidationError, ValueError):
+                           scope_note=scope_note, swagger_urls=swagger_url, figma_urls=figma_url,
+                           git_paths=repos, roles=roles)
+        except ValidationError:
             raise HTTPException(422, "Isian tidak lengkap")
-        name = safe_name(fsd.filename or "")
-        if Path(name).suffix.lower() not in (".docx", ".pdf"):
-            raise HTTPException(422, "Format file harus .docx atau .pdf")
-        data = await fsd.read(MAX_UPLOAD + 1)
-        if len(data) > MAX_UPLOAD:
-            raise HTTPException(413)
+        except ValueError as e:
+            raise HTTPException(422, str(e) if str(e) != "title" else "Isian tidak lengkap")
+        uploads = []
+        for f in fsd:
+            name = safe_name(f.filename or "")
+            if Path(name).suffix.lower() not in (".docx", ".pdf"):
+                raise HTTPException(422, "Format file harus .docx atau .pdf")
+            data = await f.read(MAX_UPLOAD + 1)
+            if len(data) > MAX_UPLOAD:
+                raise HTTPException(413)
+            uploads.append((name, data))
         job_id = store.create(form)
         d = store.dir(job_id)
         try:
-            (d / name).write_bytes(data)
-            (d / "fsd.md").write_text(fsd_to_text(d / name), encoding="utf-8")
+            for i, (name, data) in enumerate(uploads, 1):
+                (d / f"{i}_{name}").write_bytes(data)
+                (d / f"fsd_{i}.md").write_text(fsd_to_text(d / f"{i}_{name}"), encoding="utf-8")
         except ValueError as e:
             shutil.rmtree(d, ignore_errors=True)
             raise HTTPException(422, str(e))

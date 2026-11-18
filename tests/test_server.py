@@ -102,7 +102,7 @@ def test_full_flow_and_safe_name(client, tmp_path):
         time.sleep(0.1)
     assert j["state"] == "done" and "skenario" in j["preview"]
     d = tmp_path / "jobs" / jid
-    assert (d / "x.docx").exists() and (d / "fsd.md").read_text().strip() == "Isi FSD"
+    assert (d / "1_x.docx").exists() and (d / "fsd_1.md").read_text().strip() == "Isi FSD"
     assert not (tmp_path / "x.docx").exists()
     assert client.get(f"/api/jobs/{jid}/download").content == b"PK-fake"
 
@@ -138,3 +138,38 @@ def test_roles_too_long_422(client):
     r = client.post("/api/generate", data={"dev": "1", "test": "2", "title": "t", "roles": "x" * 501},
                     files={"fsd": ("a.docx", b"x")})
     assert r.status_code == 422
+
+
+def test_multi_sources(client, tmp_path):
+    login(client)
+    r = client.post("/api/generate", data={**FORM, "swagger_url": ["http://a/x", " ", "http://b/y"], "figma_url": "https://f/1"},
+                    files=[("fsd", ("a.docx", docx_bytes("A"))), ("fsd", ("b.docx", docx_bytes("B")))])
+    assert r.status_code == 200
+    d = tmp_path / "jobs" / r.json()["job_id"]
+    assert (d / "fsd_1.md").read_text().strip() == "A" and (d / "fsd_2.md").read_text().strip() == "B"
+    form = json.loads((d / "form.json").read_text())
+    assert form["swagger_urls"] == ["http://a/x", "http://b/y"] and form["figma_urls"] == ["https://f/1"]
+
+
+def test_too_many_items(client):
+    login(client)
+    r = client.post("/api/generate", data={**FORM, "swagger_url": ["http://a"] * 11}, files={"fsd": ("a.docx", docx_bytes())})
+    assert r.status_code == 422
+
+
+def test_git_path(client, tmp_path, monkeypatch):
+    login(client)
+    repo = tmp_path / "ws" / "app"
+    (repo / ".git").mkdir(parents=True)
+    plain = tmp_path / "ws" / "plain"
+    plain.mkdir()
+    send = lambda p: client.post("/api/generate", data={**FORM, "git_path": p}, files={"fsd": ("a.docx", docx_bytes())})
+    assert send(str(repo)).status_code == 422  # GIT_ROOTS belum diisi
+    monkeypatch.setenv("GIT_ROOTS", str(tmp_path / "ws"))
+    assert send(str(plain)).status_code == 422  # bukan repo
+    assert send(str(tmp_path)).status_code == 422  # di luar root
+    assert send(str(tmp_path / "ws" / ".." / "x")).status_code == 422
+    r = send(str(repo))
+    assert r.status_code == 200
+    form = json.loads((tmp_path / "jobs" / r.json()["job_id"] / "form.json").read_text())
+    assert form["git_paths"] == [str(repo.resolve())]

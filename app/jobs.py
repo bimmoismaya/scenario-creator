@@ -18,8 +18,9 @@ class JobForm(BaseModel):
     title: str
     environment: str = "Staging"
     scope_note: str = ""
-    swagger_url: str = ""
-    figma_url: str = ""
+    swagger_urls: list[str] = []
+    figma_urls: list[str] = []
+    git_paths: list[str] = []  # sudah divalidasi server (lihat sources.git_repo)
     roles: str = Field("", max_length=500)
 
 

@@ -18,15 +18,18 @@ _FIGMA = ["create_session", "get_metadata", "get_design_context", "get_screensho
 # "Write(*)" hanya berlaku di working directory (= folder job); repo tidak ditambahkan lewat --add-dir
 # sehingga Claude tidak bisa menulis ke skill/skrip. Uji nyata: aturan "Write(spec.json)" ditolak semua.
 # Bash: wildcard di tengah agar tanda kutip pada path skrip tidak memutus pencocokan.
-def allowed_tools(job_dir: Path) -> list[str]:
-    return ["Skill", "Read", "Write(*)", "WebFetch",
+# Repo git: izin baca per path (Read(//abs/**) berlaku juga untuk Glob/Grep), tanpa --add-dir,
+# jadi repo tidak bisa ditulis. Belum diuji dengan Claude Code asli.
+def allowed_tools(job_dir: Path, git_paths: list[str] = ()) -> list[str]:
+    return ["Skill", "Read", "Write(*)", "WebFetch", "Glob", "Grep",
+            *[f"Read(/{g}/**)" for g in git_paths],
             "Bash(*build_scenario.py* spec.json --check)",
             *[f"mcp__claude_ai_Figma__{t}" for t in _FIGMA]]
 
 
-def claude_args(prompt: str, job_dir: Path) -> list[str]:
+def claude_args(prompt: str, job_dir: Path, git_paths: list[str] = ()) -> list[str]:
     return ["-p", prompt, "--output-format", "stream-json", "--verbose",
-            "--allowedTools", *allowed_tools(job_dir), "--add-dir", str(Path(job_dir).resolve()),
+            "--allowedTools", *allowed_tools(job_dir, git_paths), "--add-dir", str(Path(job_dir).resolve()),
             "--model", os.environ.get("CLAUDE_MODEL", "opus"),
             "--permission-mode", "dontAsk", "--no-session-persistence"]
 
@@ -72,7 +75,8 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
     if not uploads:
         return fail("File FSD tidak ditemukan di folder job")
     try:
-        (d / "fsd.md").write_text(fsd_to_text(uploads[0]), encoding="utf-8")
+        for i, u in enumerate(uploads, 1):
+            (d / f"fsd_{i}.md").write_text(fsd_to_text(u), encoding="utf-8")
     except ValueError as e:
         return fail(str(e))
     (d / "input.json").write_text(form.model_dump_json(), encoding="utf-8")
@@ -80,7 +84,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
     (d / "spec.json").unlink(missing_ok=True)
     with tempfile.TemporaryFile("w+") as err:
         try:
-            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, "fsd.md"), d), cwd=d,
+            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, [f"fsd_{i}.md" for i in range(1, len(uploads) + 1)]), d, form.git_paths), cwd=d,
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, text=True)
         except OSError as e:
             return fail(f"Claude Code tidak dapat dijalankan: {e.strerror or type(e).__name__}")

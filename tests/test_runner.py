@@ -29,7 +29,7 @@ def test_ok(tmp_path, monkeypatch):
     st = s.status(jid)
     assert st["state"] == "done", st
     assert (s.dir(jid) / "Scenario Sprint 54 Testing (53).xlsx").exists()
-    assert "FSD contoh" in (s.dir(jid) / "fsd.md").read_text()
+    assert "FSD contoh" in (s.dir(jid) / "fsd_1.md").read_text()
 
 
 def test_exit1_sanitized(tmp_path, monkeypatch):
@@ -70,11 +70,13 @@ def test_missing_claude(tmp_path):
 
 
 def test_prompt():
-    p = build_prompt(JobForm(dev=1, test=2, title="x"), "fsd.md")
-    assert "Perlu verifikasi" in p and "fsd.md" in p and "DATA" in p
-    p2 = build_prompt(JobForm(dev=1, test=2, title="x", figma_url="https://figma.com/design/a"), "fsd.md")
-    assert "https://figma.com/design/a" in p2
-    p3 = build_prompt(JobForm(dev=1, test=2, title="x", roles="Admin, Staff"), "fsd.md")
+    p = build_prompt(JobForm(dev=1, test=2, title="x"), ["fsd_1.md"])
+    assert "Perlu verifikasi" in p and "fsd_1.md" in p and "DATA" in p
+    p2 = build_prompt(JobForm(dev=1, test=2, title="x", figma_urls=["https://figma.com/design/a", "https://figma.com/design/b"],
+                              git_paths=["/r/app"]), ["fsd_1.md", "fsd_2.md"])
+    assert "https://figma.com/design/a" in p2 and "https://figma.com/design/b" in p2
+    assert "fsd_2.md" in p2 and '"/r/app"' in p2
+    p3 = build_prompt(JobForm(dev=1, test=2, title="x", roles="Admin, Staff"), ["fsd_1.md"])
     assert '"Admin, Staff"' in p3 and "non-interaktif" in p3
 
 
@@ -95,3 +97,22 @@ def test_claude_args_model(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDE_MODEL", "sonnet")
     a = claude_args("p", tmp_path)
     assert a[a.index("--model") + 1] == "sonnet"
+
+
+def test_allowed_tools_git_read_only():
+    from app.runner import allowed_tools
+    t = allowed_tools(Path("/j"), ["/r/app"])
+    assert "Read(//r/app/**)" in t and "Grep" in t
+    assert not any("Write(/" in x or "Edit" in x for x in t)
+
+
+def test_multi_fsd_converted(tmp_path, monkeypatch):
+    s, jid = make(tmp_path)
+    doc = Document()
+    doc.add_paragraph("FSD kedua")
+    doc.save(s.dir(jid) / "other.docx")
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    run_job(s, jid, FORM, FAKE)
+    assert s.status(jid)["state"] == "done"
+    texts = {(s.dir(jid) / f"fsd_{i}.md").read_text().strip() for i in (1, 2)}
+    assert texts == {"FSD contoh", "FSD kedua"}

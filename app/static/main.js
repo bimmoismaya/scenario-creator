@@ -117,7 +117,8 @@ $("form").addEventListener("submit", async (ev) => {
     }
     if (!r.ok) {
         const m = { 413: "File lebih dari 20 MB.", 422: "Isian belum lengkap atau jenis file salah." };
-        return fail(m[r.status] || "Gagal memulai job (HTTP " + r.status + ").");
+        const d = r.status === 422 ? (await r.json().catch(() => null))?.detail : null;
+        return fail(typeof d === "string" ? d : m[r.status] || "Gagal memulai job (HTTP " + r.status + ").");
     }
     const { job_id } = await r.json();
     poll(job_id);

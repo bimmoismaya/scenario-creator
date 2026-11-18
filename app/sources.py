@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -40,3 +41,19 @@ def fsd_to_text(path: Path) -> str:
     if not text.strip():
         raise ValueError("File kosong atau tidak berisi teks")
     return text
+
+
+def git_repo(raw: str, roots: list[str]) -> str:
+    """Path repo git lokal yang sah: di dalam salah satu GIT_ROOTS dan berisi .git."""
+    if not roots:
+        raise ValueError("Sumber Git belum diaktifkan: admin perlu mengisi GIT_ROOTS")
+    p = Path(raw).expanduser().resolve()
+    if not any(p == r or r in p.parents for r in map(lambda x: Path(x).resolve(), roots)):
+        raise ValueError(f"Folder Git di luar lokasi yang diizinkan: {raw}")
+    if not (p / ".git").exists():
+        raise ValueError(f"Bukan repo Git (tidak ada .git): {raw}")
+    return str(p)
+
+
+def git_roots() -> list[str]:
+    return [r for r in os.environ.get("GIT_ROOTS", "").split(os.pathsep) if r.strip()]
