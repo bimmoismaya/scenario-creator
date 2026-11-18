@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import FileResponse, Response
 import uvicorn
+from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).parent.parent
 spec = json.loads((ROOT / "assets/examples/example_spec.json").read_text())
@@ -38,6 +39,8 @@ def job(jid: str):
 
 @app.get("/api/jobs/{jid}/download")
 def dl(jid: str): return Response(b"x", media_type="application/octet-stream")
+
+app.mount("/static", StaticFiles(directory=ROOT / "app/static"))
 
 if __name__ == "__main__":
     uvicorn.run(app, port=8001)

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import ValidationError
 
@@ -124,4 +125,5 @@ def create_app(run_job=None) -> FastAPI:
     def index():
         return FileResponse(STATIC / "index.html")
 
+    app.mount("/static", StaticFiles(directory=STATIC))
     return app
