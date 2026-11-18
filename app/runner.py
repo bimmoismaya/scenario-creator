@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -34,7 +35,7 @@ def claude_args(prompt: str, job_dir: Path, repos: tuple | list = (), swagger_ur
     hosts = sorted({h for u in swagger_urls if (h := urlparse(u).hostname)})
     tools = [t for t in allowed_tools(job_dir) if t != "WebFetch"] + [f"WebFetch(domain:{h})" for h in hosts]
     # Repo dibaca langsung dari disk; Edit(...) menolak semua penulisan ke repo (deny menang atas "Write(*)").
-    deny = [*_SECRETS, *[f"Edit(/{r}/**)" for r in repos]]
+    deny = [*_SECRETS, *[f"Edit(/{Path(r).as_posix()}/**)" for r in repos]]
     return ["-p", prompt, "--output-format", "stream-json", "--verbose",
             "--allowedTools", *tools, "--add-dir", str(Path(job_dir).resolve()),
             *[x for r in repos for x in ("--add-dir", r)],
@@ -89,12 +90,14 @@ def stage_of(ev: dict, n: dict | None = None) -> str | None:
 
 def run_job(store: JobStore, job_id: str, form: JobForm,
             claude_cmd: list[str] | None = None, timeout: int = TIMEOUT) -> None:
-    claude_cmd = claude_cmd or ["claude"]
+    claude_cmd = claude_cmd or [shutil.which("claude") or "claude"]
     d = store.dir(job_id)
 
     def fail(msg: str) -> None:
         store.set_status(job_id, state="failed", error=clean(msg))
 
+    if claude_cmd[0].lower().endswith((".cmd", ".bat")):  # prompt multi-baris rusak lewat cmd.exe
+        return fail("Claude Code versi npm (.cmd) tidak didukung; pasang versi native (claude.exe) lalu restart server")
     store.set_status(job_id, state="running", stage="Membaca sumber", queue_pos=0)
     # Urut numerik menurut awalan "{i}_" dari server ("10_x" sesudah "2_x").
     num = lambda p: (int(m[1]) if (m := re.match(r"(\d+)_", p.name)) else 10**9, p.name)
@@ -112,7 +115,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
     with tempfile.TemporaryFile("w+") as err:
         try:
             proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, [f"fsd_{i}.md" for i in range(1, len(uploads) + 1)]), d, list(form.git_repos), form.swagger_urls), cwd=d,
-                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, text=True)
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, text=True, encoding="utf-8", errors="replace")
         except OSError as e:
             return fail(f"Claude Code tidak dapat dijalankan: {e.strerror or type(e).__name__}")
         timed_out = threading.Event()
