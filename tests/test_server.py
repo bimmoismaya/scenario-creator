@@ -157,32 +157,48 @@ def test_too_many_items(client):
     assert r.status_code == 422
 
 
-def gitgen(c, rels, files=None, data=None):
-    files = files or [("git_file", (f"f{i}", b"x = 1")) for i, _ in enumerate(rels)]
-    return c.post("/api/generate", data={**FORM, "git_rel": rels, **(data or {})},
-                  files=[("fsd", ("a.docx", docx_bytes())), *files])
+def gitgen(c, paths):
+    return c.post("/api/generate", data={**FORM, "git_path": paths}, files=[("fsd", ("a.docx", docx_bytes()))])
 
 
-def test_git_upload(client, tmp_path):
+@pytest.fixture
+def roots(tmp_path, monkeypatch):
+    root = tmp_path / "git"
+    (root / "app" / ".git").mkdir(parents=True)
+    (root / "lib").mkdir()
+    (tmp_path / "secret").mkdir()
+    (root / "evil").symlink_to(tmp_path / "secret")
+    monkeypatch.setenv("GIT_ROOTS", str(root))
+    return root
+
+
+def test_git_folder_selected(client, roots, tmp_path):
     login(client)
-    r = gitgen(client, ["1/app/src/a.py", "1/app/README.md", "2/lib/b.py"],
-               [("git_file", ("a", b"A")), ("git_file", ("r", b"R")), ("git_file", ("b", b"B"))])
+    r = gitgen(client, [str(roots / "app")])
     assert r.status_code == 200
     d = tmp_path / "jobs" / r.json()["job_id"]
-    assert (d / "git_1/src/a.py").read_bytes() == b"A" and (d / "git_2/b.py").read_bytes() == b"B"
-    assert json.loads((d / "form.json").read_text())["git_repos"] == {"git_1": "app", "git_2": "lib"}
+    assert json.loads((d / "form.json").read_text())["git_repos"] == {str((roots / "app").resolve()): "app"}
+    assert not any(d.glob("git_*"))  # tidak ada file repo yang disalin
 
 
-@pytest.mark.parametrize("rel", ["1/app/../../x", "/etc/passwd", "1/app", "0/app/a", "11/app/a", "x/app/a", "1/app//a", "1/app/a\\b"])
-def test_git_bad_path(client, rel):
+@pytest.mark.parametrize("bad", ["/etc", "relatif/app", "ROOT/../secret", "ROOT/evil", "ROOT/tidak-ada"])
+def test_git_folder_rejected(client, roots, bad):
     login(client)
-    assert gitgen(client, [rel], [("git_file", ("a", b"A"))]).status_code == 422
+    assert gitgen(client, [bad.replace("ROOT", str(roots))]).status_code == 422
 
 
-def test_git_limits(client, monkeypatch):
+def test_git_folder_roots_empty(client, monkeypatch, tmp_path):
+    monkeypatch.delenv("GIT_ROOTS", raising=False)
     login(client)
-    assert gitgen(client, ["1/a/b", "1/a/c"], [("git_file", ("a", b"A"))]).status_code == 422  # jumlah tidak cocok
-    monkeypatch.setattr("app.server.GIT_MAX_FILE", 3)
-    assert gitgen(client, ["1/a/b"], [("git_file", ("a", b"AAAA"))]).status_code == 413
-    monkeypatch.setattr("app.server.GIT_MAX_FILES", 1)
-    assert gitgen(client, ["1/a/b", "1/a/c"]).status_code == 422
+    assert gitgen(client, [str(tmp_path)]).status_code == 422
+
+
+def test_git_dirs_listing(client, roots):
+    assert client.get("/api/git/dirs").status_code == 401
+    login(client)
+    top = client.get("/api/git/dirs").json()
+    assert top["dirs"][0]["path"] == str(roots.resolve()) and top["parent"] == ""
+    sub = client.get("/api/git/dirs", params={"path": str(roots)}).json()
+    assert {(d["name"], d["repo"]) for d in sub["dirs"]} == {("app", True), ("lib", False)}  # symlink keluar root disembunyikan
+    assert sub["parent"] == ""
+    assert client.get("/api/git/dirs", params={"path": "/etc"}).status_code == 422

@@ -15,13 +15,10 @@ from pydantic import ValidationError
 
 from app.finalize import preview_data
 from app.jobs import JobForm, JobStore, Queue
-from app.sources import fsd_to_text, git_target, safe_name
+from app.sources import fsd_to_text, git_dir, git_roots, safe_name
 
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_ITEMS = 10  # per sumber
-GIT_MAX_FILES = 900  # Starlette membatasi 1000 file per request (FSD ikut dihitung)
-GIT_MAX_FILE = 1024 * 1024
-GIT_MAX_TOTAL = 30 * 1024 * 1024
 STATIC = Path(__file__).parent / "static"
 SESSION_AGE = 7 * 86400
 
@@ -81,7 +78,7 @@ def create_app(run_job=None) -> FastAPI:
     async def generate(request: Request, dev: str = Form(""), test: str = Form(""), title: str = Form(""),
                        environment: str = Form("Staging"), scope_note: str = Form(""),
                        swagger_url: list[str] = Form([]), figma_url: list[str] = Form([]),
-                       git_rel: list[str] = Form([]), git_file: list[UploadFile] = File([]), roles: str = Form(""),
+                       git_path: list[str] = Form([]), roles: str = Form(""),
                        fsd: list[UploadFile] = File(...)):
         auth(request)
         clean_list = lambda xs: [x.strip() for x in xs if x.strip()]
@@ -107,28 +104,13 @@ def create_app(run_job=None) -> FastAPI:
             if len(data) > MAX_UPLOAD:
                 raise HTTPException(413)
             uploads.append((name, data))
-        if len(git_file) != len(git_rel) or len(git_file) > GIT_MAX_FILES:
-            raise HTTPException(422, f"Folder Git maksimal {GIT_MAX_FILES} file; pilih subfolder yang lebih kecil")
-        repos: dict[str, str] = {}
-        git_data: list[tuple[Path, bytes]] = []
-        total = 0
         try:
-            for f, rel in zip(git_file, git_rel):
-                n, folder, sub = git_target(rel, MAX_ITEMS)
-                repos[f"git_{n}"] = folder
-                data = await f.read(GIT_MAX_FILE + 1)
-                total += len(data)
-                if len(data) > GIT_MAX_FILE or total > GIT_MAX_TOTAL:
-                    raise HTTPException(413, "Folder Git terlalu besar (maks 1 MB per file, 30 MB total)")
-                git_data.append((Path(f"git_{n}") / sub, data))
+            repos = {str(d): d.name for d in map(git_dir, clean_list(git_path)[:MAX_ITEMS])}
         except ValueError as e:
             raise HTTPException(422, str(e))
         form.git_repos = repos
         job_id = store.create(form)
         d = store.dir(job_id)
-        for rel_path, data in git_data:
-            (d / rel_path).parent.mkdir(parents=True, exist_ok=True)
-            (d / rel_path).write_bytes(data)
         try:
             for i, (name, data) in enumerate(uploads, 1):
                 (d / f"{i}_{name}").write_bytes(data)
@@ -138,6 +120,21 @@ def create_app(run_job=None) -> FastAPI:
             raise HTTPException(422, str(e))
         queue.submit(job_id, lambda: run_job(store, job_id, form))
         return {"job_id": job_id}
+
+    @app.get("/api/git/dirs")
+    def git_dirs(request: Request, path: str = ""):
+        auth(request)
+        try:
+            base = git_dir(path) if path else None
+            roots = git_roots()
+            kids = roots if base is None else sorted(c for c in base.iterdir() if c.is_dir())
+            # symlink yang menunjuk keluar GIT_ROOTS tidak ditampilkan
+            dirs = [{"name": str(k) if base is None else k.name, "path": str(k.resolve()), "repo": (k / ".git").exists()}
+                    for k in kids if any(k.resolve().is_relative_to(r) for r in roots)]
+        except (ValueError, OSError) as e:
+            raise HTTPException(422, str(e))
+        parent = "" if base is None or base in roots else str(base.parent)
+        return {"path": str(base or ""), "parent": parent, "dirs": dirs}
 
     @app.get("/api/jobs/{job_id}")
     def status(job_id: str, request: Request):

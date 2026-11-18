@@ -73,9 +73,9 @@ def test_prompt():
     p = build_prompt(JobForm(dev=1, test=2, title="x"), ["fsd_1.md"])
     assert "Perlu verifikasi" in p and "fsd_1.md" in p and "DATA" in p
     p2 = build_prompt(JobForm(dev=1, test=2, title="x", figma_urls=["https://figma.com/design/a", "https://figma.com/design/b"],
-                              git_repos={"git_1": "app"}), ["fsd_1.md", "fsd_2.md"])
+                              git_repos={"/g/app": "app"}), ["fsd_1.md", "fsd_2.md"])
     assert "https://figma.com/design/a" in p2 and "https://figma.com/design/b" in p2
-    assert "fsd_2.md" in p2 and "`git_1/`" in p2 and '"app"' in p2
+    assert "fsd_2.md" in p2 and "`/g/app`" in p2
     p3 = build_prompt(JobForm(dev=1, test=2, title="x", roles="Admin, Staff"), ["fsd_1.md"])
     assert '"Admin, Staff"' in p3 and "non-interaktif" in p3
 
@@ -83,7 +83,12 @@ def test_prompt():
 def test_stage_and_clean():
     ev = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash",
           "input": {"command": "secret@x.com"}}]}}
-    assert stage_of(ev) == "Validasi"
+    assert stage_of(ev) == "Memvalidasi spec"
+    n = {}
+    rd = lambda f: {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"file_path": f}}]}}
+    assert stage_of(rd("/job/fsd_1.md"), n) == "Membaca FSD"
+    assert stage_of(rd("/repo/a.py"), n) == "Menelusuri kode repo (1 langkah)"
+    assert stage_of(rd("/repo/b.py"), n) == "Menelusuri kode repo (2 langkah)"
     assert stage_of({"type": "user"}) is None
     out = clean("a@b.com " + "x" * 500)
     assert "@" not in out and len(out) <= 300
@@ -116,3 +121,10 @@ def test_multi_fsd_converted(tmp_path, monkeypatch):
     assert s.status(jid)["state"] == "done"
     texts = {(s.dir(jid) / f"fsd_{i}.md").read_text().strip() for i in (1, 2)}
     assert texts == {"FSD contoh", "FSD kedua"}
+
+
+def test_claude_args_repo_read_only(tmp_path):
+    from app.runner import claude_args
+    a = claude_args("p", tmp_path, ["/g/app"])
+    assert "/g/app" in a and "Edit(//g/app/**)" in a
+    assert "--disallowedTools" not in claude_args("p", tmp_path)

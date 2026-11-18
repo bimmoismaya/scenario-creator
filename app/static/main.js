@@ -26,7 +26,7 @@ const SOURCES = [
     { id: "fsd", label: "Dokumen FSD", note: "(.docx atau .pdf, maks 20 MB; minimal satu)", type: "file", accept: ".docx,.pdf" },
     { id: "swagger_url", label: "Link Swagger / API contract", note: "(opsional)", type: "url", ph: "https://..." },
     { id: "figma_url", label: "Link Figma", note: "(opsional)", type: "url", ph: "https://www.figma.com/design/..." },
-    { id: "git_path", label: "Folder Git lokal", note: "(opsional; pilih folder repo. Isinya diunggah tanpa .git, node_modules, file biner, dan file di atas 1 MB)", type: "file", dir: true },
+    { id: "git_path", label: "Folder Git lokal", note: "(opsional; pilih folder repo di server, tanpa upload)", type: "text", dir: true },
 ];
 function sourceGroup(s) {
     const root = $(s.id), rows = el("div");
@@ -36,15 +36,25 @@ function sourceGroup(s) {
     });
     const add = () => {
         const inp = el("input", { type: s.type, name: s.id });
+        if (s.dir) {
+            inp.setAttribute("readonly", "");
+            inp.setAttribute("placeholder", "Belum dipilih");
+        }
         if (s.accept)
             inp.setAttribute("accept", s.accept);
-        if (s.dir)
-            inp.setAttribute("webkitdirectory", "");
         if (s.ph)
             inp.setAttribute("placeholder", s.ph);
         const del = el("button", { type: "button", class: "ghost" }, "Hapus");
         del.onclick = () => { del.parentElement.remove(); renum(); };
-        rows.append(el("div", { class: "src-row" }, inp, del));
+        const row = el("div", { class: "src-row" }, inp);
+        if (s.dir) {
+            const pick = el("button", { type: "button", class: "ghost" }, "Pilih folder");
+            pick.onclick = () => pickFolder().then(p => { if (p)
+                inp.value = p; });
+            row.append(pick);
+        }
+        row.append(del);
+        rows.append(row);
         renum();
     };
     add();
@@ -56,24 +66,44 @@ function sourceGroup(s) {
 SOURCES.forEach(sourceGroup);
 const inputs = (id) => [...$(id).querySelectorAll("input")];
 const vals = (id) => inputs(id).map(i => i.value.trim()).filter(Boolean);
-// Folder Git: browser tidak memberi path, jadi isi folder diunggah. Saring yang tidak berguna untuk analisa.
-const GIT_SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".venv", "venv", "__pycache__", ".next", "target", "vendor", ".idea", ".vscode"]);
-const GIT_SKIP_FILES = /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|jar|woff2?|ttf|eot|mp[34]|mov|exe|dll|so|class|lock)$/i;
-const GIT_MAX_FILES = 900, GIT_MAX_FILE = 1024 * 1024, GIT_MAX_TOTAL = 30 * 1024 * 1024;
-function gitFiles() {
-    const out = [];
-    let n = 0;
-    for (const inp of inputs("git_path")) {
-        const keep = [...(inp.files ?? [])].filter(f => {
-            const parts = f.webkitRelativePath.split("/");
-            return parts.length >= 2 && !parts.slice(1, -1).some(p => GIT_SKIP_DIRS.has(p)) && !GIT_SKIP_FILES.test(f.name) && f.size <= GIT_MAX_FILE;
-        });
-        if (!keep.length)
-            continue;
-        n++;
-        keep.forEach(f => out.push({ rel: `${n}/${f.webkitRelativePath}`, file: f }));
-    }
-    return out;
+function pickFolder() {
+    const dlg = $("picker");
+    let cur = "", parent = "";
+    const go = async (path) => {
+        showErr("pk-err", "");
+        const r = await fetch("/api/git/dirs?path=" + encodeURIComponent(path)).catch(() => null);
+        if (!r)
+            return showErr("pk-err", "Server tidak terjangkau.");
+        if (r.status === 401) {
+            dlg.close();
+            return showLogin();
+        }
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j)
+            return showErr("pk-err", j?.detail || "Folder tidak bisa dibuka.");
+        cur = j.path;
+        parent = j.parent;
+        $("pk-path").textContent = cur || "Folder induk yang diizinkan";
+        $("pk-ok").disabled = !cur;
+        $("pk-up").disabled = !cur;
+        const list = $("pk-list");
+        list.replaceChildren();
+        if (!j.dirs.length)
+            list.append(el("li", { class: "hint" }, cur ? "Tidak ada subfolder." : "GIT_ROOTS belum diisi di server."));
+        for (const d of j.dirs) {
+            const b = el("button", { type: "button" }, (d.repo ? "[git] " : "") + d.name);
+            b.onclick = () => go(d.path);
+            list.append(el("li", null, b));
+        }
+    };
+    return new Promise(res => {
+        $("pk-up").onclick = () => go(parent);
+        $("pk-ok").onclick = () => { dlg.close(); res(cur); };
+        $("pk-cancel").onclick = () => { dlg.close(); res(""); };
+        dlg.oncancel = () => res("");
+        dlg.showModal();
+        go("");
+    });
 }
 const fsdFiles = () => inputs("fsd").flatMap(i => [...(i.files ?? [])]);
 function showLogin() { try {
@@ -118,17 +148,11 @@ $("form").addEventListener("submit", async (ev) => {
         if (f.size > 20 * 1024 * 1024)
             return showErr("formErr", "File FSD lebih dari 20 MB: " + f.name);
     }
-    const git = gitFiles();
-    if (git.length > GIT_MAX_FILES)
-        return showErr("formErr", `Folder Git berisi ${git.length} file setelah disaring (maks ${GIT_MAX_FILES}). Pilih subfolder yang lebih kecil, mis. src.`);
-    if (git.reduce((a, g) => a + g.file.size, 0) > GIT_MAX_TOTAL)
-        return showErr("formErr", "Folder Git lebih dari 30 MB setelah disaring. Pilih subfolder yang lebih kecil.");
     const fd = new FormData();
     for (const k of ["dev", "test", "title", "environment", "scope_note", "roles"])
         fd.append(k, field(k).value.trim());
-    for (const k of ["swagger_url", "figma_url"])
+    for (const k of ["swagger_url", "figma_url", "git_path"])
         vals(k).forEach(v => fd.append(k, v));
-    git.forEach(g => { fd.append("git_file", g.file); fd.append("git_rel", g.rel); });
     files.forEach(f => fd.append("fsd", f));
     setBusy(true);
     show("result", false);
@@ -148,9 +172,19 @@ $("form").addEventListener("submit", async (ev) => {
         return fail(typeof d === "string" ? d : m[r.status] || "Gagal memulai job (HTTP " + r.status + ").");
     }
     const { job_id } = await r.json();
+    startClock();
     poll(job_id);
 });
-function fail(msg) { clearTimeout(timer); setBusy(false); show("progress", false); showErr("formErr", msg); }
+// Waktu berjalan terus bertambah agar tahap yang lama tidak terlihat macet.
+let tick;
+function startClock() {
+    const t0 = Date.now();
+    clearInterval(tick);
+    const draw = () => { const s = Math.floor((Date.now() - t0) / 1000); $("elapsed").textContent = `Berjalan ${Math.floor(s / 60)} menit ${s % 60} detik`; };
+    draw();
+    tick = window.setInterval(draw, 1000);
+}
+function fail(msg) { clearInterval(tick); clearTimeout(timer); setBusy(false); show("progress", false); showErr("formErr", msg); }
 function poll(id) {
     clearTimeout(timer);
     fetch("/api/jobs/" + encodeURIComponent(id)).then(async (r) => {
@@ -162,6 +196,7 @@ function poll(id) {
             return fail("Status job tidak bisa dibaca (HTTP " + r.status + ").");
         const j = await r.json();
         if (j.state === "done") {
+            clearInterval(tick);
             setBusy(false);
             show("progress", false);
             return render(id, j.preview);

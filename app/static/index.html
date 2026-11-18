@@ -59,6 +59,8 @@ td ol{margin:0;padding-left:18px}
 .acard{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:10px}
 .acard p{margin:4px 0}
 .k{color:var(--mute);font-size:13px}
+dialog{border:1px solid var(--line);border-radius:var(--r);padding:16px;width:min(560px,92vw)}dialog::backdrop{background:#0006}
+#pk-list{list-style:none;margin:8px 0;padding:0;max-height:50vh;overflow:auto}#pk-list button{width:100%;text-align:left;background:#fff;color:var(--ink);border:0;border-bottom:1px solid var(--line);border-radius:0;font-weight:400}
 @media (max-width:640px){.grid{grid-template-columns:1fr}main{padding:14px 12px 40px}}
 </style>
 </head>
@@ -109,8 +111,20 @@ td ol{margin:0;padding-left:18px}
   <p class="hint">Dokumen besar bisa memakan belasan menit.</p>
 </form>
 
+<dialog id="picker" aria-labelledby="pk-title">
+  <h2 id="pk-title">Pilih folder Git</h2>
+  <p class="k" id="pk-path"></p>
+  <ul id="pk-list"></ul>
+  <p id="pk-err" class="err hidden" role="alert"></p>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" class="ghost" id="pk-up">Naik</button>
+    <button type="button" class="ghost" id="pk-cancel">Batal</button>
+    <button type="button" id="pk-ok">Pilih folder ini</button>
+  </div>
+</dialog>
+
 <section id="progress" class="card hidden" aria-live="polite">
-  <div class="prog"><div class="spin" aria-hidden="true"></div><div><b id="stage">Menunggu antrian</b><div id="queue" class="k"></div></div></div>
+  <div class="prog"><div class="spin" aria-hidden="true"></div><div><b id="stage">Menunggu antrian</b><div id="queue" class="k"></div><div id="elapsed" class="k"></div></div></div>
   <p class="hint">Proses bisa memakan beberapa menit. Biarkan halaman ini terbuka.</p>
 </section>
 

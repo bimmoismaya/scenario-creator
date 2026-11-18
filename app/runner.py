@@ -24,9 +24,13 @@ def allowed_tools(job_dir: Path) -> list[str]:
             *[f"mcp__claude_ai_Figma__{t}" for t in _FIGMA]]
 
 
-def claude_args(prompt: str, job_dir: Path) -> list[str]:
+def claude_args(prompt: str, job_dir: Path, repos: list[str] = []) -> list[str]:
+    # Repo dibaca langsung dari disk; Edit(...) menolak semua penulisan ke repo (deny menang atas "Write(*)").
+    deny = [f"Edit(/{r}/**)" for r in repos]
     return ["-p", prompt, "--output-format", "stream-json", "--verbose",
             "--allowedTools", *allowed_tools(job_dir), "--add-dir", str(Path(job_dir).resolve()),
+            *[x for r in repos for x in ("--add-dir", r)],
+            *(["--disallowedTools", *deny] if deny else []),
             "--model", os.environ.get("CLAUDE_MODEL", "opus"),
             "--permission-mode", "dontAsk", "--no-session-persistence"]
 
@@ -38,24 +42,36 @@ def clean(text: str, limit: int = 300) -> str:
     return text[:limit]
 
 
-def stage_of(ev: dict) -> str | None:
-    """Tahap hanya dari nama tool; isi event tidak pernah dipakai."""
+def stage_of(ev: dict, n: dict | None = None) -> str | None:
+    """Tahap hanya dari nama tool dan awalan nama file; isi event tidak pernah dipakai. `n` = penghitung langkah."""
     if ev.get("type") != "assistant":
         return None
+    n = n if n is not None else {}
     stage = None
     for b in ev.get("message", {}).get("content", []):
         if not isinstance(b, dict):
             continue
         if b.get("type") == "text":
-            stage = stage or "Analisa"
+            stage = stage or "Menganalisa"
         elif b.get("type") == "tool_use":
-            name = str(b.get("name", ""))
+            name, inp = str(b.get("name", "")), b.get("input")
+            path = Path(str((inp or {}).get("file_path", "")) if isinstance(inp, dict) else "").name
             if name == "Write":
-                stage = "Menulis case"
+                n["w"] = n.get("w", 0) + 1
+                stage = f"Menulis case (berkas ke-{n['w']})"
             elif name == "Bash":
-                stage = "Validasi"
-            else:  # Skill, Read, WebFetch, mcp__*
-                stage = "Membaca sumber"
+                stage = "Memvalidasi spec"
+            elif name == "Read" and path.startswith("fsd_"):
+                stage = "Membaca FSD"
+            elif name in ("Read", "Glob", "Grep"):
+                n["r"] = n.get("r", 0) + 1
+                stage = f"Menelusuri kode repo ({n['r']} langkah)"
+            elif name == "WebFetch":
+                stage = "Membaca Swagger"
+            elif name.startswith("mcp__"):
+                stage = "Membaca desain Figma"
+            else:
+                stage = "Memuat skill QA"
     return stage
 
 
@@ -81,7 +97,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
     (d / "spec.json").unlink(missing_ok=True)
     with tempfile.TemporaryFile("w+") as err:
         try:
-            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, [f"fsd_{i}.md" for i in range(1, len(uploads) + 1)]), d), cwd=d,
+            proc = subprocess.Popen(claude_cmd + claude_args(build_prompt(form, [f"fsd_{i}.md" for i in range(1, len(uploads) + 1)]), d, list(form.git_repos)), cwd=d,
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, text=True)
         except OSError as e:
             return fail(f"Claude Code tidak dapat dijalankan: {e.strerror or type(e).__name__}")
@@ -93,7 +109,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
 
         timer = threading.Timer(timeout, kill)
         timer.start()
-        result = None
+        result, steps = None, {}
         try:
             for line in proc.stdout:
                 try:
@@ -104,7 +120,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
                     continue
                 if ev.get("type") == "result":
                     result = ev
-                elif (s := stage_of(ev)):
+                elif (s := stage_of(ev, steps)):
                     store.set_status(job_id, stage=s)
             rc = proc.wait()
         finally:
