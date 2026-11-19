@@ -72,10 +72,16 @@ def test_rejects(tmp_path):
             save_figma_files(bad, tmp_path / "figma")
 
 
-def test_too_many_files(tmp_path):
+def test_too_many_files_in_one_archive(tmp_path):
     z = zipped({f"{i}.png": img() for i in range(MAX_FILES + 1)})
     with pytest.raises(ValueError, match="Maksimal"):
         save_figma_files([("a.zip", z)], tmp_path / "figma")
+
+
+def test_limit_is_per_archive_not_total(tmp_path):
+    z = zipped({f"{i}.png": img() for i in range(MAX_FILES)})
+    out = save_figma_files([("a.zip", z), ("b.zip", z), ("c.png", img())], tmp_path / "figma")
+    assert len(out) == 2 * MAX_FILES + 1 and out[-1] == f"figma/figma_{2 * MAX_FILES + 1}.png"
 
 
 def test_zip_bomb_limit(tmp_path, monkeypatch):

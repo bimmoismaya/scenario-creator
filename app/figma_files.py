@@ -7,7 +7,7 @@ import rarfile
 from PIL import Image
 from pypdf import PdfReader
 
-MAX_FILES = 100  # gambar + PDF per job; tiap file dibaca Claude satu per satu
+MAX_FILES = 100  # gambar + PDF per file unggahan (tiap ZIP/RAR dihitung sendiri); tidak ada batas total per job
 MAX_PDF_PAGES = 50
 MAX_UNPACKED = 200 * 1024 * 1024  # total isi arsip setelah diekstrak (anti zip bomb)
 MAX_ENTRIES = 300
@@ -58,6 +58,7 @@ def save_figma_files(uploads: list[tuple[str, bytes]], out: Path) -> list[str]:
     nama di dalam arsip tidak pernah dipakai sebagai path. Mengembalikan path relatif terhadap induk `out`."""
     out.mkdir(exist_ok=True)
     saved: list[str] = []
+    start = 0  # jumlah `saved` sebelum unggahan yang sedang diproses
 
     def add(data: bytes, top: bool, name: str, depth: int = 0) -> None:
         if data[:5] == b"%PDF-":
@@ -81,13 +82,14 @@ def save_figma_files(uploads: list[tuple[str, bytes]], out: Path) -> list[str]:
             raise ValueError(f"Format file Figma tidak didukung: {name}")
         else:
             return  # berkas lain di dalam arsip (teks, __MACOSX, dll.) dilewati
-        if len(saved) >= MAX_FILES:
-            raise ValueError(f"Maksimal {MAX_FILES} gambar/halaman desain Figma per job")
+        if len(saved) - start >= MAX_FILES:
+            raise ValueError(f"Maksimal {MAX_FILES} gambar/halaman desain Figma per file unggahan: {name}")
         p = out / f"figma_{len(saved) + 1}.{ext}"
         p.write_bytes(body)
         saved.append(f"{out.name}/{p.name}")
 
     for name, data in uploads:
+        start = len(saved)
         add(data, True, name)
     if not saved:
         raise ValueError("Tidak ada gambar atau PDF yang ditemukan di file Figma")
