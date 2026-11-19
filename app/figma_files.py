@@ -11,16 +11,17 @@ MAX_FILES = 100  # gambar + PDF per job; tiap file dibaca Claude satu per satu
 MAX_PDF_PAGES = 50
 MAX_UNPACKED = 200 * 1024 * 1024  # total isi arsip setelah diekstrak (anti zip bomb)
 MAX_ENTRIES = 300
-MAX_SIDE = 2000
+MAX_SIDE = 1568  # sisi terpanjang yang dipakai model; lebih besar hanya menambah token dan waktu
 Image.MAX_IMAGE_PIXELS = 50_000_000
 
 _RAR_MAGIC = (b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00")
 
 
 def _png(data: bytes) -> bytes | None:
-    """Gambar format apa pun yang dikenal Pillow menjadi PNG (frame pertama, maks 2000 px). None bila bukan gambar."""
+    """Gambar format apa pun yang dikenal Pillow menjadi PNG (frame pertama, maks 1568 px). None bila bukan gambar."""
     try:
         im = Image.open(io.BytesIO(data))
+        im.draft("RGB", (MAX_SIDE, MAX_SIDE))  # JPEG: dekode lebih cepat; format lain diabaikan
         im.seek(0)
         im = im.convert("RGBA" if "A" in im.getbands() or "transparency" in im.info else "RGB")
         im.thumbnail((MAX_SIDE, MAX_SIDE))

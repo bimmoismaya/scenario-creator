@@ -91,3 +91,19 @@ def test_finalize_missing_part(tmp_path):
     ex["parts"] = ["hilang.json"]
     with pytest.raises(FinalizeError, match="tidak ditemukan"):
         finalize(_job(tmp_path, ex), FORM)
+
+
+def test_recalc_skipped_when_disabled(tmp_path, monkeypatch):
+    from unittest.mock import patch
+    from app.finalize import _recalc
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/soffice")
+    f = tmp_path / "a.xlsx"
+    f.write_bytes(b"x")
+    monkeypatch.setenv("RECALC", "0")
+    with patch("subprocess.run") as run:
+        _recalc(f)
+    run.assert_not_called()
+    monkeypatch.setenv("RECALC", "1")
+    with patch("subprocess.run", side_effect=OSError) as run:
+        _recalc(f)
+    run.assert_called_once()

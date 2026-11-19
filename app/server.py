@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -126,13 +127,16 @@ def create_app(run_job=None) -> FastAPI:
         form.git_repos = repos
         job_id = store.create(form)
         d = store.dir(job_id)
-        try:
+        def save_all():
             for i, (name, data) in enumerate(uploads, 1):
                 (d / f"{i}_{name}").write_bytes(data)
                 (d / f"fsd_{i}.md").write_text(fsd_to_text(d / f"{i}_{name}"), encoding="utf-8")
             if figma_uploads:
                 form.figma_files = save_figma_files(figma_uploads, d / "figma")
                 (d / "form.json").write_text(form.model_dump_json(), encoding="utf-8")
+
+        try:
+            await run_in_threadpool(save_all)
         except ValueError as e:
             shutil.rmtree(d, ignore_errors=True)
             raise HTTPException(422, str(e))

@@ -50,7 +50,7 @@ def test_any_image_becomes_png(tmp_path, fmt):
 def test_big_image_is_shrunk_and_rgba_kept(tmp_path):
     out = save_figma_files([("a", img(size=(4000, 100), mode="RGBA"))], tmp_path / "figma")
     im = Image.open(tmp_path / out[0])
-    assert im.size[0] == 2000 and im.mode == "RGBA"
+    assert im.size[0] == 1568 and im.mode == "RGBA"
 
 
 def test_pdf_kept_as_is(tmp_path):
@@ -193,3 +193,14 @@ def test_prompt_lists_figma_files():
     assert "figma_url: (kosong)" in p and "tandai case yang bergantung padanya" not in p.split("figma_url")[1].split("\n")[0]
     p2 = build_prompt(JobForm(dev=1, test=2, title="x"), ["fsd_1.md"])
     assert "figma/" not in p2 and "figma_url (baca" in p2
+
+
+def test_big_jpeg_shrunk_with_draft(tmp_path):
+    from app.figma_files import MAX_SIDE
+    out = save_figma_files([("a.jpg", img("JPEG", size=(6000, 3000)))], tmp_path / "figma")
+    assert max(Image.open(tmp_path / out[0]).size) <= MAX_SIDE
+
+
+def test_build_module_loaded_once():
+    from app.finalize import _build_module
+    assert _build_module() is _build_module()
