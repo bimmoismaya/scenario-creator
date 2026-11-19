@@ -107,7 +107,7 @@ def test_claude_args_model(monkeypatch, tmp_path):
 
 def test_allowed_tools_read_only_for_git():
     from app.runner import allowed_tools
-    t = allowed_tools(Path("/j"))
+    t = allowed_tools()
     assert "Grep" in t and "Glob" in t
     assert not any(x.startswith("Edit") or x == "Bash" for x in t)
 
@@ -161,3 +161,12 @@ def test_npm_cmd_rejected(tmp_path):
     run_job(s, jid, FORM, [r"C:\\npm\\claude.cmd"])
     st = s.status(jid)
     assert st["state"] == "failed" and "native" in st["error"]
+
+
+def test_existing_fsd_text_not_reparsed(tmp_path, monkeypatch):
+    s, jid = make(tmp_path)
+    (s.dir(jid) / "fsd_1.md").write_text("sudah dikonversi server", encoding="utf-8")
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    run_job(s, jid, FORM, FAKE)
+    assert s.status(jid)["state"] == "done"
+    assert (s.dir(jid) / "fsd_1.md").read_text() == "sudah dikonversi server"

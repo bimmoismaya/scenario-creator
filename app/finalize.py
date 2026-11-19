@@ -1,9 +1,11 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from collections import Counter
+from functools import cache
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,9 +21,9 @@ class FinalizeError(Exception):
 
 
 def _recalc(xlsx: Path) -> None:
-    """Hitung ulang formula lewat soffice; file asli diganti hanya bila sukses."""
+    """Hitung ulang formula lewat soffice (dimatikan dengan RECALC=0); file asli diganti hanya bila sukses."""
     soffice = shutil.which("soffice")
-    if not soffice:
+    if not soffice or os.environ.get("RECALC", "1") == "0":
         return
     with tempfile.TemporaryDirectory() as tmp:
         outdir = Path(tmp) / "out"
@@ -37,6 +39,7 @@ def _recalc(xlsx: Path) -> None:
             shutil.copyfile(res, xlsx)
 
 
+@cache
 def _build_module():
     import importlib.util
     sp = importlib.util.spec_from_file_location("build_scenario", BUILD)
@@ -80,12 +83,8 @@ def finalize(job_dir: Path, form: "JobForm") -> Path:
     return out
 
 
-def _validate(spec: dict):
-    return _build_module().validate(spec)
-
-
 def preview_data(spec: dict) -> dict:
-    _, warns, _ = _validate(spec)
+    _, warns, _ = _build_module().validate(spec)
     cases = [c for s in spec.get("sections", []) for c in s.get("cases", [])]
     return {
         "statistic": {

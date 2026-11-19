@@ -3,7 +3,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -12,7 +11,7 @@ from urllib.parse import urlparse
 from app import figma_quota
 from app.finalize import FinalizeError, finalize
 from app.jobs import JobForm, JobStore
-from app.prompt import ROOT, build_prompt
+from app.prompt import build_prompt
 from app.sources import fsd_to_text
 
 TIMEOUT = 3600  # dokumen besar dengan Opus bisa belasan menit; beri margin
@@ -23,7 +22,7 @@ _FIGMA = ["create_session", "get_metadata", "get_design_context", "get_screensho
 # "Write(*)" hanya berlaku di working directory (= folder job); repo tidak ditambahkan lewat --add-dir
 # sehingga Claude tidak bisa menulis ke skill/skrip. Uji nyata: aturan "Write(spec.json)" ditolak semua.
 # Bash: wildcard di tengah agar tanda kutip pada path skrip tidak memutus pencocokan.
-def allowed_tools(job_dir: Path) -> list[str]:
+def allowed_tools() -> list[str]:
     return ["Skill", "Read", "Write(*)", "WebFetch", "Glob", "Grep",
             "Bash(*build_scenario.py* spec.json --check)",
             *[f"mcp__claude_ai_Figma__{t}" for t in _FIGMA]]
@@ -36,7 +35,7 @@ _SECRETS = ["Read(**/.env*)", "Read(**/*.pem)", "Read(**/*.key)", "Read(**/id_rs
 def claude_args(prompt: str, job_dir: Path, repos: tuple | list = (), swagger_urls: tuple | list = ()) -> list[str]:
     # WebFetch hanya ke host Swagger yang diisi user; tanpa link, tanpa WebFetch.
     hosts = sorted({h for u in swagger_urls if (h := urlparse(u).hostname)})
-    tools = [t for t in allowed_tools(job_dir) if t != "WebFetch"] + [f"WebFetch(domain:{h})" for h in hosts]
+    tools = [t for t in allowed_tools() if t != "WebFetch"] + [f"WebFetch(domain:{h})" for h in hosts]
     # Repo dibaca langsung dari disk; Edit(...) menolak semua penulisan ke repo (deny menang atas "Write(*)").
     deny = [*_SECRETS, *[f"Edit(/{Path(r).as_posix()}/**)" for r in repos]]
     return ["-p", prompt, "--output-format", "stream-json", "--verbose",
@@ -125,7 +124,8 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
         return fail("File FSD tidak ditemukan di folder job")
     try:
         for i, u in enumerate(uploads, 1):
-            (d / f"fsd_{i}.md").write_text(fsd_to_text(u), encoding="utf-8")
+            if not (d / f"fsd_{i}.md").exists():  # server sudah mengonversi saat upload; jangan parse ulang
+                (d / f"fsd_{i}.md").write_text(fsd_to_text(u), encoding="utf-8")
     except ValueError as e:
         return fail(str(e))
     (d / "input.json").write_text(form.model_dump_json(), encoding="utf-8")

@@ -12,7 +12,7 @@ Alat ini tidak terikat satu project. Setiap Generate berdiri sendiri dan hanya m
 | Linux, macOS, atau Windows 10/11 | Diuji di Linux. Windows asli didukung lewat `run.bat` (lihat bagian Windows), belum diuji langsung. WSL juga bisa dan memakai langkah Linux. |
 | Python 3.11 atau lebih baru | Diuji di 3.14. Cek dengan `python3 --version`. |
 | Claude Code CLI | Harus sudah login. Cek dengan `claude --version`. Di Windows pakai versi native (`claude.exe`), bukan versi npm (`claude.cmd`), dan pasang Git for Windows. |
-| LibreOffice (`soffice`) | Opsional. Dipakai menghitung ulang rumus di sheet Statistic. Tanpa ini, Excel tetap menghitung saat file dibuka. |
+| LibreOffice (`soffice`) | Opsional. Dipakai menghitung ulang rumus di sheet Statistic. Tanpa ini, Excel tetap menghitung saat file dibuka. Isi `RECALC=0` di `.env` untuk melewatinya walau terpasang (job lebih cepat). |
 | Konektor Figma di akun Claude | Opsional. Tanpa ini, Generate tetap jalan dan case yang butuh desain ditandai `Perlu verifikasi`. |
 
 Web ini menjalankan `claude` memakai login Claude Code di mesin yang menjalankannya. Pemakaian dihitung ke akun
