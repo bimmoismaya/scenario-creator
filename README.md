@@ -128,8 +128,18 @@ Link Figma dinonaktifkan, dan Generate dengan link ditolak sampai awal bulan dep
 (file privat, link salah) tidak dianggap kuota habis. Admin bisa memulihkan lebih awal dengan menghapus
 `jobs/figma_quota.json`.
 
-**Upload file Figma.** Maks 100 gambar/halaman PDF per Generate, 50 MB per file. File RAR butuh `unrar`, `7z`, atau
+**Upload file Figma.** Maks 100 gambar/halaman PDF per file atau ZIP/RAR (tiap arsip dihitung sendiri, tanpa batas total), 50 MB per file. File RAR butuh `unrar`, `7z`, atau
 `bsdtar` terpasang di server (ZIP tidak butuh apa-apa). ZIP/RAR yang diberi password ditolak.
+
+**Pemakaian token (perkiraan, belum diukur).** Semua job berjalan lewat satu login Claude di server, jadi pemakaian
+semua orang masuk ke batas akun yang sama. Tiap gambar yang dibaca Claude memakan token sesuai ukurannya (kira-kira piksel dibagi 750).
+Agar terkendali, server membuang gambar yang identik dan mengecilkan ukuran otomatis menurut jumlah gambar: sisi
+terpanjang 1568 px untuk maks 20 gambar, 1152 px sampai 60, dan 896 px di atasnya (perkiraan: 100 gambar layar sekitar
+67 ribu token, bukan 170 ribu lebih). Teks kecil di gambar yang banyak jadi kurang terbaca. Gambar diolah paralel.
+Tetap ada batas: ratusan gambar bisa melebihi konteks Claude atau menghabiskan jatah akun. Tanpa batas total, satu Generate bisa berisi sampai 10 file x 100 gambar, jadi unggah
+hanya frame yang relevan dengan FSD. Jalur link juga memakai token (output Figma MCP, termasuk screenshot), jadi
+Upload file hanya menghindari kuota Figma MCP, bukan biaya token. Untuk menghemat, isi `CLAUDE_MODEL=sonnet` di `.env`
+bila kualitasnya cukup. Hasil ukur nyata per job belum ada; bandingkan sendiri bila perlu.
 
 **Figma.** Figma sering tidak bisa dibaca AI bila file privat. Gunakan **Duplicate to drafts**, ubah akses duplikat
 menjadi "Anyone with the link can view", lalu tempel link duplikat itu. Panduan yang sama ada di halaman web.
