@@ -24,6 +24,11 @@ def img(fmt="PNG", size=(40, 30), mode="RGB"):
     return b.getvalue()
 
 
+def uniq(n, size=(40, 30)):
+    """n gambar PNG yang berbeda (ukuran sedikit berbeda) agar tidak digabung sebagai duplikat."""
+    return {f"{i}.png": img(size=(size[0] + i, size[1])) for i in range(n)}
+
+
 def pdf():
     b = io.BytesIO()
     w = PdfWriter()
@@ -73,14 +78,15 @@ def test_rejects(tmp_path):
 
 
 def test_too_many_files_in_one_archive(tmp_path):
-    z = zipped({f"{i}.png": img() for i in range(MAX_FILES + 1)})
+    z = zipped(uniq(MAX_FILES + 1))
     with pytest.raises(ValueError, match="Maksimal"):
         save_figma_files([("a.zip", z)], tmp_path / "figma")
 
 
 def test_limit_is_per_archive_not_total(tmp_path):
-    z = zipped({f"{i}.png": img() for i in range(MAX_FILES)})
-    out = save_figma_files([("a.zip", z), ("b.zip", z), ("c.png", img())], tmp_path / "figma")
+    z1 = zipped(uniq(MAX_FILES))
+    z2 = zipped(uniq(MAX_FILES, size=(500, 30)))
+    out = save_figma_files([("a.zip", z1), ("b.zip", z2), ("c.png", img(size=(7, 7)))], tmp_path / "figma")
     assert len(out) == 2 * MAX_FILES + 1 and out[-1] == f"figma/figma_{2 * MAX_FILES + 1}.png"
 
 
@@ -210,3 +216,50 @@ def test_big_jpeg_shrunk_with_draft(tmp_path):
 def test_build_module_loaded_once():
     from app.finalize import _build_module
     assert _build_module() is _build_module()
+
+
+def test_duplicates_saved_once_and_not_counted(tmp_path):
+    same = img()
+    z = zipped({"a.png": same, "b.png": same, "c.pdf": pdf()})
+    out = save_figma_files([("1.zip", z), ("2.png", same), ("3.pdf", pdf())], tmp_path / "figma")
+    assert out == ["figma/figma_1.png", "figma/figma_2.pdf"]
+
+
+def test_duplicates_do_not_use_archive_limit(tmp_path):
+    members = uniq(MAX_FILES)
+    members["salinan.png"] = members["0.png"]  # 101 berkas, 100 unik
+    out = save_figma_files([("a.zip", zipped(members))], tmp_path / "figma")
+    assert len(out) == MAX_FILES
+
+
+def _widest(tmp_path, out):
+    return max(Image.open(tmp_path / f).size[0] for f in out if f.endswith(".png"))
+
+
+def test_adaptive_side_by_image_count(tmp_path):
+    big = lambda n, w=2400: zipped({f"{i}.png": img(size=(w + i, 800)) for i in range(n)})
+    assert _widest(tmp_path, save_figma_files([("a.zip", big(20))], tmp_path / "a")) == 1568
+    assert _widest(tmp_path, save_figma_files([("a.zip", big(21))], tmp_path / "b")) == 1152
+    assert _widest(tmp_path, save_figma_files([("a.zip", big(60))], tmp_path / "c")) == 1152
+    assert _widest(tmp_path, save_figma_files([("a.zip", big(61))], tmp_path / "d")) == 896
+
+
+def _pdf_n(n):
+    b = io.BytesIO()
+    w = PdfWriter()
+    w.add_blank_page(100 + n, 100)
+    w.write(b)
+    return b.getvalue()
+
+
+def test_pdf_not_counted_for_size_tier_and_kept(tmp_path):
+    files = [(f"{i}.pdf", pdf() if i == 0 else _pdf_n(i)) for i in range(25)] + [("a.png", img(size=(3000, 100)))]
+    out = save_figma_files(files, tmp_path / "figma")
+    assert _widest(tmp_path, out) == 1568 and len(out) == 26
+
+
+def test_parallel_processing_keeps_input_order(tmp_path):
+    widths = [30 + 7 * i for i in range(40)]
+    z = zipped({f"{i:02d}.png": img(size=(w, 20)) for i, w in enumerate(widths)})
+    out = save_figma_files([("a.zip", z)], tmp_path / "figma")
+    assert [Image.open(tmp_path / f).size[0] for f in out] == widths

@@ -132,9 +132,11 @@ Link Figma dinonaktifkan, dan Generate dengan link ditolak sampai awal bulan dep
 `bsdtar` terpasang di server (ZIP tidak butuh apa-apa). ZIP/RAR yang diberi password ditolak.
 
 **Pemakaian token (perkiraan, belum diukur).** Semua job berjalan lewat satu login Claude di server, jadi pemakaian
-semua orang masuk ke batas akun yang sama. Tiap gambar yang dibaca Claude memakan sekitar 2.000 token (gambar 1568 px),
-dan jumlahnya naik lurus sesuai jumlah gambar: 5 sampai 20 frame wajar, ratusan gambar bisa melebihi konteks Claude
-atau menghabiskan jatah akun. Tanpa batas total, satu Generate bisa berisi sampai 10 file x 100 gambar, jadi unggah
+semua orang masuk ke batas akun yang sama. Tiap gambar yang dibaca Claude memakan token sesuai ukurannya (kira-kira piksel dibagi 750).
+Agar terkendali, server membuang gambar yang identik dan mengecilkan ukuran otomatis menurut jumlah gambar: sisi
+terpanjang 1568 px untuk maks 20 gambar, 1152 px sampai 60, dan 896 px di atasnya (perkiraan: 100 gambar layar sekitar
+67 ribu token, bukan 170 ribu lebih). Teks kecil di gambar yang banyak jadi kurang terbaca. Gambar diolah paralel.
+Tetap ada batas: ratusan gambar bisa melebihi konteks Claude atau menghabiskan jatah akun. Tanpa batas total, satu Generate bisa berisi sampai 10 file x 100 gambar, jadi unggah
 hanya frame yang relevan dengan FSD. Jalur link juga memakai token (output Figma MCP, termasuk screenshot), jadi
 Upload file hanya menghindari kuota Figma MCP, bukan biaya token. Untuk menghemat, isi `CLAUDE_MODEL=sonnet` di `.env`
 bila kualitasnya cukup. Hasil ukur nyata per job belum ada; bandingkan sendiri bila perlu.
