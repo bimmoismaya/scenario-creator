@@ -20,6 +20,7 @@ class JobForm(BaseModel):
     scope_note: str = ""
     swagger_urls: list[str] = []
     figma_urls: list[str] = []
+    figma_files: list[str] = []  # path relatif di folder job: gambar PNG dan PDF hasil unggahan
     git_repos: dict[str, str] = {}  # path folder di server -> nama folder, mis. {"/home/u/git/myrepo": "myrepo"}
     roles: str = Field("", max_length=500)
 

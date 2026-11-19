@@ -195,6 +195,17 @@ def test_git_folder_too_many(client, roots):
     assert gitgen(client, [str(roots / "app")] * 11).status_code == 422
 
 
+def test_git_repo_containing_jobs_rejected(tmp_path, monkeypatch):
+    (tmp_path / "r" / ".git").mkdir(parents=True)
+    monkeypatch.setenv("APP_PASSWORD", "pw")
+    monkeypatch.setenv("JOBS_DIR", str(tmp_path / "r" / "jobs"))
+    monkeypatch.setenv("GIT_ROOTS", str(tmp_path))
+    c = TestClient(create_app(run_job=fake_run))
+    login(c)
+    r = gitgen(c, [str(tmp_path / "r")])
+    assert r.status_code == 422 and "JOBS_DIR" in r.json()["detail"]
+
+
 def test_git_roots_pathsep(monkeypatch, tmp_path):
     import os
     from app.sources import git_roots

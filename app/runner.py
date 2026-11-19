@@ -9,12 +9,15 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
+from app import figma_quota
 from app.finalize import FinalizeError, finalize
 from app.jobs import JobForm, JobStore
 from app.prompt import ROOT, build_prompt
 from app.sources import fsd_to_text
 
 TIMEOUT = 3600  # dokumen besar dengan Opus bisa belasan menit; beri margin
+_FIGMA_PREFIX = "mcp__claude_ai_Figma__"
+_QUOTA_RE = re.compile(r"limit|quota|exceed|too many requests|\b429\b|upgrade", re.I)
 _FIGMA = ["create_session", "get_metadata", "get_design_context", "get_screenshot",
           "get_variable_defs", "search_design_system"]  # use_figma/whoami sengaja tidak diizinkan
 # "Write(*)" hanya berlaku di working directory (= folder job); repo tidak ditambahkan lewat --add-dir
@@ -49,6 +52,22 @@ def clean(text: str, limit: int = 300) -> str:
     text = re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", "[email]", str(text))
     text = re.sub(r"\s+", " ", text).strip()
     return text[:limit]
+
+
+def figma_quota_hit(ev: dict, ids: set) -> bool:
+    """True bila Figma menolak sebuah panggilan karena kuota. `ids` = id panggilan Figma yang sudah terlihat."""
+    msg = ev.get("message")
+    blocks = msg.get("content") if isinstance(msg, dict) else None
+    hit = False
+    for b in blocks if isinstance(blocks, list) else []:
+        if not isinstance(b, dict):
+            continue
+        if b.get("type") == "tool_use" and str(b.get("name", "")).startswith(_FIGMA_PREFIX):
+            ids.add(b.get("id"))
+        elif b.get("type") == "tool_result" and b.get("tool_use_id") in ids and b.get("is_error") \
+                and _QUOTA_RE.search(str(b.get("content", ""))):
+            hit = True
+    return hit
 
 
 def stage_of(ev: dict, n: dict | None = None) -> str | None:
@@ -126,7 +145,7 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
 
         timer = threading.Timer(timeout, kill)
         timer.start()
-        result, steps = None, {"repos": list(form.git_repos)}
+        result, steps, figma_ids = None, {"repos": list(form.git_repos)}, set()
         try:
             for line in proc.stdout:
                 try:
@@ -135,6 +154,8 @@ def run_job(store: JobStore, job_id: str, form: JobForm,
                     continue
                 if not isinstance(ev, dict):
                     continue
+                if figma_quota_hit(ev, figma_ids):
+                    figma_quota.mark_exhausted(store.root)
                 if ev.get("type") == "result":
                     result = ev
                 elif (s := stage_of(ev, steps)):

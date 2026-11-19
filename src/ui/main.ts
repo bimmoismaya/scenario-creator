@@ -30,7 +30,8 @@ function showErr(id: string, msg: string) { $(id).textContent = msg; show(id, !!
 const SOURCES: Source[] = [
   { id: "fsd", label: "Dokumen FSD", note: "(.docx atau .pdf, maks 20 MB; minimal satu)", type: "file", accept: ".docx,.pdf" },
   { id: "swagger_url", label: "Link Swagger / API contract", note: "(opsional)", type: "url", ph: "https://..." },
-  { id: "figma_url", label: "Link Figma", note: "(opsional)", type: "url", ph: "https://www.figma.com/design/..." },
+  { id: "figma_url", label: "Link Figma", note: "(memakai kuota Figma MCP)", type: "url", ph: "https://www.figma.com/design/..." },
+  { id: "figma_file", label: "File desain Figma", note: "(gambar apa pun, PDF, ZIP, atau RAR; maks 50 MB per file)", type: "file", accept: "image/*,.pdf,.zip,.rar" },
   { id: "git_path", label: "Folder Git lokal", note: "(opsional; pilih folder repo di server, tanpa upload)", type: "text", dir: true },
 ];
 function sourceGroup(s: Source) {
@@ -98,10 +99,29 @@ function pickFolder(): Promise<string> {
     dlg.showModal(); go("");
   });
 }
-const fsdFiles = () => inputs("fsd").flatMap(i => [...(i.files ?? [])]);
+const figmaMode = () => document.querySelector<HTMLInputElement>("input[name=figma_mode]:checked")?.value ?? "url";
+function setFigmaMode(m: string) { show("figma_url_box", m === "url"); show("figma_file_box", m === "file"); }
+document.querySelectorAll("input[name=figma_mode]").forEach(r => r.addEventListener("change", () => setFigmaMode(figmaMode())));
+// Kuota Figma MCP dianggap habis bila Figma pernah menolak (dicatat server). Habis: link dinonaktifkan, arahkan ke upload file.
+interface Quota { exhausted: boolean; reset: string }
+async function loadQuota() {
+  const r = await fetch("/api/figma/quota").catch(() => null);
+  if (!r || !r.ok) return;
+  const q = await r.json() as Quota, box = $("figma_quota"), link = $<HTMLInputElement>("mode_url");
+  const reset = new Date(q.reset + "T00:00").toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  link.disabled = q.exhausted;
+  box.className = "quota " + (q.exhausted ? "bad" : "ok");
+  box.textContent = q.exhausted
+    ? `Kuota Figma MCP habis: Figma menolak permintaan terakhir. Link Figma tidak bisa dipakai sampai sekitar ${reset}. Gunakan Upload file.`
+    : "Link Figma memakai kuota Figma MCP yang terbatas per bulan di akun Figma non-premium. Bila kuota habis, peringatan muncul di sini dan Anda perlu Upload file.";
+  show("figma_quota", true);
+  if (q.exhausted) { $<HTMLInputElement>("mode_file").checked = true; setFigmaMode("file"); }
+}
+const filesOf = (id: string) => inputs(id).flatMap(i => [...(i.files ?? [])]);
+const fsdFiles = () => filesOf("fsd");
 
 function showLogin() { try { sessionStorage.removeItem("in"); } catch (e) {} show("app", false); show("login", true); }
-function showApp() { try { sessionStorage.setItem("in", "1"); } catch (e) {} show("login", false); show("app", true); }
+function showApp() { try { sessionStorage.setItem("in", "1"); } catch (e) {} show("login", false); show("app", true); loadQuota(); }
 let signedIn = false; try { signedIn = sessionStorage.getItem("in") === "1"; } catch (e) {}
 signedIn ? showApp() : showLogin();
 
@@ -127,7 +147,10 @@ $("form").addEventListener("submit", async ev => {
   }
   const fd = new FormData();
   for (const k of ["dev", "test", "title", "environment", "scope_note", "roles"]) fd.append(k, field(k).value.trim());
-  for (const k of ["swagger_url", "figma_url", "git_path"]) vals(k).forEach(v => fd.append(k, v));
+  const byLink = figmaMode() === "url", figma: File[] = byLink ? [] : filesOf("figma_file");
+  for (const f of figma) if (f.size > 50 * 1024 * 1024) return showErr("formErr", "File Figma lebih dari 50 MB: " + f.name);
+  for (const k of byLink ? ["swagger_url", "figma_url", "git_path"] : ["swagger_url", "git_path"]) vals(k).forEach(v => fd.append(k, v));
+  figma.forEach(f => fd.append("figma_file", f));
   files.forEach(f => fd.append("fsd", f));
   setBusy(true); show("result", false); show("progress", true);
   $("stage").textContent = "Mengunggah..."; $("queue").textContent = "";
@@ -150,7 +173,7 @@ function startClock() {
   const draw = () => { const s = Math.floor((Date.now() - t0) / 1000); $("elapsed").textContent = `Berjalan ${Math.floor(s / 60)} menit ${s % 60} detik`; };
   draw(); tick = window.setInterval(draw, 1000);
 }
-function fail(msg: string) { clearInterval(tick); clearTimeout(timer); setBusy(false); show("progress", false); showErr("formErr", msg); }
+function fail(msg: string) { loadQuota(); clearInterval(tick); clearTimeout(timer); setBusy(false); show("progress", false); showErr("formErr", msg); }
 
 function poll(id: string) {
   clearTimeout(timer);
@@ -158,7 +181,7 @@ function poll(id: string) {
     if (r.status === 401) { fail(""); return showLogin(); }
     if (!r.ok) return fail("Status job tidak bisa dibaca (HTTP " + r.status + ").");
     const j = await r.json() as JobStatus;
-    if (j.state === "done") { clearInterval(tick); setBusy(false); show("progress", false); return render(id, j.preview); }
+    if (j.state === "done") { clearInterval(tick); setBusy(false); show("progress", false); loadQuota(); return render(id, j.preview); }
     if (j.state === "failed") return fail("Job gagal: " + (j.error || "alasan tidak diketahui") + ". Hubungi admin bila berulang.");
     $("stage").textContent = j.stage || (j.state === "queued" ? "Menunggu antrian" : "Memproses");
     $("queue").textContent = j.state === "queued" && (j.queue_pos ?? 0) > 0 ? "Antrian: " + j.queue_pos + " job di depan Anda" : "";

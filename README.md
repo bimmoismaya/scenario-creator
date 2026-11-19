@@ -110,7 +110,7 @@ Dokumen besar bisa memakan belasan menit, terutama dengan Opus.
 3. **Sumber.** Hanya FSD yang wajib. Tiap sumber boleh sampai 10 isian (tombol **+ Tambah**).
    - **FSD:** `.docx` atau `.pdf`, maksimal 20 MB per file. Lebih dari satu FSD dianggap satu fitur.
    - **Swagger / API contract:** tempel link. Hanya host dari link ini yang boleh dibuka Claude.
-   - **Figma:** tempel link. Lihat panduan Figma di bawah.
+   - **Figma:** pilih **Link Figma** (memakai kuota Figma MCP) atau **Upload file** (gambar apa pun, PDF, ZIP, atau RAR; tidak memakai kuota). Lihat panduan Figma di bawah.
    - **Folder Git lokal:** klik **Pilih folder**, telusuri daftar folder di server, masuk ke repo (ditandai `[git]`),
      lalu **Pilih folder ini**. Tombol hanya aktif di folder repo (berisi `.git`). Tidak ada file yang diunggah:
      Claude membaca repo langsung dari disk, hanya baca. File rahasia (`.env*`, `*.pem`, `*.key`, `id_rsa*`) tidak
@@ -121,6 +121,15 @@ Dokumen besar bisa memakan belasan menit, terutama dengan Opus.
    dan waktu berjalan. Dokumen besar dengan Opus bisa belasan menit; hanya satu job berjalan per waktu, job lain antre.
 5. **Hasil.** Periksa panel peringatan mutu dan tab **Statistic**, **Skenario**, **Analisa**, **Bug List**.
    Tekan **Unduh Excel** untuk mengambil xlsx.
+
+**Kuota Figma MCP.** Akun Figma non-premium hanya punya kuota terbatas per bulan (mis. 20 panggilan). Aplikasi tidak
+menghitung sisanya. Bila Figma menolak panggilan dengan error kuota/limit, kuota dianggap habis: banner merah muncul,
+Link Figma dinonaktifkan, dan Generate dengan link ditolak sampai awal bulan depan. Pakai Upload file. Error biasa
+(file privat, link salah) tidak dianggap kuota habis. Admin bisa memulihkan lebih awal dengan menghapus
+`jobs/figma_quota.json`.
+
+**Upload file Figma.** Maks 30 gambar/halaman PDF per Generate, 50 MB per file. File RAR butuh `unrar`, `7z`, atau
+`bsdtar` terpasang di server (ZIP tidak butuh apa-apa). ZIP/RAR yang diberi password ditolak.
 
 **Figma.** Figma sering tidak bisa dibaca AI bila file privat. Gunakan **Duplicate to drafts**, ubah akses duplikat
 menjadi "Anyone with the link can view", lalu tempel link duplikat itu. Panduan yang sama ada di halaman web.
@@ -133,6 +142,7 @@ menjadi "Anyone with the link can view", lalu tempel link duplikat itu. Panduan 
 | Pilih minimal satu file FSD | FSD belum dipilih |
 | Pilih folder repo Git (berisi .git) | Folder yang dipilih bukan repo, atau folder induknya |
 | Folder Git di luar GIT_ROOTS | Folder tidak di bawah `GIT_ROOTS` di server |
+| Repo ini berisi folder hasil (JOBS_DIR) | Folder `jobs` ada di dalam repo yang dipilih (mis. memilih repo Scenario Creator itu sendiri). Pilih repo lain atau pindahkan `JOBS_DIR` ke luar repo |
 | GIT_ROOTS belum diisi di server | Admin belum mengisi `GIT_ROOTS` di `.env`; sumber Git ditolak |
 
 **Repo harus ada di server.** Yang dipilih adalah folder di mesin server, bukan di laptop Anda. QA yang membuka web
