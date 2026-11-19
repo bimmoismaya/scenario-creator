@@ -7,3 +7,5 @@ itsdangerous
 python-multipart
 pytest
 httpx
+rarfile
+pillow
