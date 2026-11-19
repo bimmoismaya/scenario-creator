@@ -128,7 +128,7 @@ Link Figma dinonaktifkan, dan Generate dengan link ditolak sampai awal bulan dep
 (file privat, link salah) tidak dianggap kuota habis. Admin bisa memulihkan lebih awal dengan menghapus
 `jobs/figma_quota.json`.
 
-**Upload file Figma.** Maks 30 gambar/halaman PDF per Generate, 50 MB per file. File RAR butuh `unrar`, `7z`, atau
+**Upload file Figma.** Maks 100 gambar/halaman PDF per Generate, 50 MB per file. File RAR butuh `unrar`, `7z`, atau
 `bsdtar` terpasang di server (ZIP tidak butuh apa-apa). ZIP/RAR yang diberi password ditolak.
 
 **Figma.** Figma sering tidak bisa dibaca AI bila file privat. Gunakan **Duplicate to drafts**, ubah akses duplikat

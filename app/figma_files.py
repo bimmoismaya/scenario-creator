@@ -7,7 +7,7 @@ import rarfile
 from PIL import Image
 from pypdf import PdfReader
 
-MAX_FILES = 30  # gambar + PDF per job; tiap file dibaca Claude satu per satu
+MAX_FILES = 100  # gambar + PDF per job; tiap file dibaca Claude satu per satu
 MAX_PDF_PAGES = 50
 MAX_UNPACKED = 200 * 1024 * 1024  # total isi arsip setelah diekstrak (anti zip bomb)
 MAX_ENTRIES = 300
